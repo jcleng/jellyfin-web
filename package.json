@@ -96,6 +96,7 @@
     "@tanstack/react-query-devtools": "5.91.3",
     "@tanstack/react-query-persist-client": "5.90.27",
     "abortcontroller-polyfill": "1.7.8",
+    "artplayer": "5.4.0",
     "axios": "1.18.1",
     "blurhash": "2.0.5",
     "classlist.js": "https://github.com/eligrey/classList.js/archive/1.2.20180112.tar.gz",

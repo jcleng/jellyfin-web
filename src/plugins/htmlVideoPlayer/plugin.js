@@ -44,6 +44,7 @@ import { setBackdropTransparency, TRANSPARENCY_LEVEL } from '../../components/ba
 import Events from '../../utils/events.ts';
 import { includesAny } from '../../utils/container.ts';
 import { isHls } from '../../utils/mediaSource.ts';
+import Artplayer from 'artplayer';
 
 const NATIVE_UNSUPPORTED_SUBTITLE_CODECS = ['ssa', 'ass', 'pgssub', 'dvdsub', 'vobsub'];
 const ASS_SUBTITLE_CODECS = ['ssa', 'ass'];
@@ -345,6 +346,11 @@ export class HtmlVideoPlayer {
      * @type {number | null | undefined}
      */
     #currentTime;
+
+    /**
+     * @type {any | null | undefined}
+     */
+    #artPlayer;
 
     /**
      * @private (used in other files)
@@ -987,9 +993,10 @@ export class HtmlVideoPlayer {
             videoElement.removeEventListener('error', this.onError); // bound in htmlMediaHelper
 
             resetSrc(videoElement);
-
-            videoElement.parentNode.removeChild(videoElement);
         }
+
+        // Artplayer takes care of removing its own video element from the DOM
+        this.#destroyArtPlayer();
 
         const dlg = this.#videoDialog;
         if (dlg) {
@@ -1799,6 +1806,112 @@ export class HtmlVideoPlayer {
     /**
      * @private
      */
+    #destroyArtPlayer() {
+        const art = this.#artPlayer;
+        if (art) {
+            art.destroy();
+            this.#artPlayer = null;
+        }
+    }
+
+    /**
+     * Creates an artplayer instance in the given container and wires it up
+     * so the underlying <video> element drives Jellyfin's playback logic.
+     * @private
+     */
+    #createArtPlayer(options, playerDlg) {
+        this.#destroyArtPlayer();
+        playerDlg.innerHTML = '';
+
+        let art;
+        try {
+            art = new Artplayer({
+                container: playerDlg,
+                url: '',
+                poster: options.backdropUrl || '',
+                title: String(options.item?.Name || ''),
+                volume: getSavedVolume(),
+                isLive: !options.mediaSource?.RunTimeTicks,
+                muted: false,
+                autoplay: appHost.supports(AppFeature.HtmlVideoAutoplay),
+                pip: false,
+                autoSize: false,
+                autoMini: false,
+                screenshot: false,
+                setting: true,
+                loop: false,
+                flip: true,
+                playbackRate: true,
+                aspectRatio: true,
+                fullscreen: true,
+                fullscreenWeb: false,
+                miniProgressBar: true,
+                mutex: true,
+                backdrop: true,
+                playsInline: true,
+                airplay: true,
+                theme: '#00a4dc',
+                lang: navigator.language?.toLowerCase() || 'en',
+                moreVideoAttr: {
+                    // in webOS, setting preload auto allows resuming videos
+                    preload: browser.web0s ? 'auto' : 'metadata',
+                    disablePictureInPicture: true,
+                    controlsList: 'nodownload noplaybackrate noremoteplayback'
+                }
+            });
+        } catch (err) {
+            // Fall back to a plain native video element if artplayer cannot be created
+            console.error('[htmlVideoPlayer] error creating artplayer, falling back to native video', err);
+            const nativeVideo = document.createElement('video');
+            nativeVideo.classList.add('htmlvideoplayer');
+            nativeVideo.preload = 'metadata';
+            nativeVideo.autoplay = true;
+            nativeVideo.setAttribute('webkit-playsinline', '');
+            nativeVideo.setAttribute('playsinline', '');
+            nativeVideo.disablePictureInPicture = true;
+            nativeVideo.controlsList = 'nodownload noplaybackrate noremoteplayback';
+            playerDlg.appendChild(nativeVideo);
+            art = null;
+            return this.#wireVideoElement(nativeVideo, options, playerDlg, null);
+        }
+
+        return this.#wireVideoElement(art.video, options, playerDlg, art);
+    }
+
+    /**
+     * @private
+     */
+    #wireVideoElement(videoElement, options, playerDlg, art) {
+        videoElement.classList.add('htmlvideoplayer');
+
+        // TODO: Move volume control to PlaybackManager. Player should just be a wrapper that translates commands into API calls.
+        if (!appHost.supports(AppFeature.PhysicalVolumeControl)) {
+            videoElement.volume = getSavedVolume();
+        }
+
+        videoElement.addEventListener('timeupdate', this.onTimeUpdate);
+        videoElement.addEventListener('ended', this.onEnded);
+        videoElement.addEventListener('volumechange', this.onVolumeChange);
+        videoElement.addEventListener('pause', this.onPause);
+        videoElement.addEventListener('playing', this.onPlaying);
+        videoElement.addEventListener('play', this.onPlay);
+        videoElement.addEventListener('click', this.onClick);
+        videoElement.addEventListener('dblclick', this.onDblClick);
+        videoElement.addEventListener('waiting', this.onWaiting);
+        if (options.backdropUrl) {
+            videoElement.poster = options.backdropUrl;
+        }
+
+        this.#videoDialog = playerDlg;
+        this.#mediaElement = videoElement;
+        this.#artPlayer = art;
+
+        return videoElement;
+    }
+
+    /**
+     * @private
+     */
     createMediaElement(options) {
         const dlg = document.querySelector('.videoPlayerContainer');
 
@@ -1813,46 +1926,9 @@ export class HtmlVideoPlayer {
                     playerDlg.classList.add('videoPlayerContainer-onTop');
                 }
 
-                let html = '';
-                const cssClass = 'htmlvideoplayer';
-
-                // Can't autoplay in these browsers so we need to use the full controls, at least until playback starts
-                if (!appHost.supports(AppFeature.HtmlVideoAutoplay)) {
-                    html += '<video class="' + cssClass + '" preload="metadata" autoplay="autoplay" controls="controls" webkit-playsinline playsinline>';
-                } else if (browser.web0s) {
-                    // in webOS, setting preload auto allows resuming videos
-                    html += '<video class="' + cssClass + '" preload="auto" autoplay="autoplay" webkit-playsinline playsinline>';
-                } else {
-                    // Chrome 35 won't play with preload none
-                    html += '<video class="' + cssClass + '" preload="metadata" autoplay="autoplay" webkit-playsinline playsinline>';
-                }
-
-                html += '</video>';
-
-                playerDlg.innerHTML = html;
-                const videoElement = playerDlg.querySelector('video');
-
-                // TODO: Move volume control to PlaybackManager. Player should just be a wrapper that translates commands into API calls.
-                if (!appHost.supports(AppFeature.PhysicalVolumeControl)) {
-                    videoElement.volume = getSavedVolume();
-                }
-
-                videoElement.addEventListener('timeupdate', this.onTimeUpdate);
-                videoElement.addEventListener('ended', this.onEnded);
-                videoElement.addEventListener('volumechange', this.onVolumeChange);
-                videoElement.addEventListener('pause', this.onPause);
-                videoElement.addEventListener('playing', this.onPlaying);
-                videoElement.addEventListener('play', this.onPlay);
-                videoElement.addEventListener('click', this.onClick);
-                videoElement.addEventListener('dblclick', this.onDblClick);
-                videoElement.addEventListener('waiting', this.onWaiting);
-                if (options.backdropUrl) {
-                    videoElement.poster = options.backdropUrl;
-                }
-
                 document.body.insertBefore(playerDlg, document.body.firstChild);
-                this.#videoDialog = playerDlg;
-                this.#mediaElement = videoElement;
+
+                const videoElement = this.#createArtPlayer(options, playerDlg);
 
                 delete this.forcedFullscreen;
 
@@ -1891,12 +1967,7 @@ export class HtmlVideoPlayer {
                 }
             }
 
-            const videoElement = dlg.querySelector('video');
-            if (options.backdropUrl) {
-                // update backdrop image
-                videoElement.poster = options.backdropUrl;
-            }
-
+            const videoElement = this.#createArtPlayer(options, dlg);
             return Promise.resolve(videoElement);
         }
     }
