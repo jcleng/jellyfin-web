@@ -16,6 +16,7 @@ import { appHost } from '../../components/apphost';
 import loading from '../../components/loading/loading';
 import dom from '../../utils/dom';
 import { playbackManager } from '../../components/playback/playbackmanager';
+import qualityoptions from '../../components/qualityOptions';
 import { appRouter } from '../../components/router/appRouter';
 import {
     bindEventsToHlsPlayer,
@@ -1875,6 +1876,123 @@ export class HtmlVideoPlayer {
     }
 
     /**
+     * Returns the minimum set of tags required for the artplayer settings icon.
+     * @private
+     */
+    #artIconSvg(paths) {
+        return '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + paths + '</svg>';
+    }
+
+    /**
+     * Builds the quality (maximum bitrate) item for the artplayer settings menu,
+     * mirroring the native OSD quality menu.
+     * @private
+     */
+    #buildQualitySetting(options) {
+        const videoStream = getMediaStreamVideoTracks(options.mediaSource)[0];
+
+        const qualitySettingsOptions = qualityoptions.getVideoQualityOptions({
+            currentMaxBitrate: playbackManager.getMaxStreamingBitrate(this),
+            isAutomaticBitrateEnabled: playbackManager.enableAutomaticBitrateDetection(this),
+            videoCodec: videoStream && videoStream.Codec,
+            videoBitRate: videoStream && videoStream.BitRate,
+            enableAuto: true
+        });
+
+        const selected = qualitySettingsOptions.find((o) => o.selected);
+        const selectedBitrate = selected && selected.bitrate;
+
+        return {
+            width: 200,
+            html: globalize.translate('Quality'),
+            icon: this.#artIconSvg('<path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/>'),
+            selector: qualitySettingsOptions.map((o) => ({
+                html: o.name,
+                value: String(o.bitrate),
+                default: !!o.selected
+            })),
+            onSelect: (item) => {
+                const bitrate = parseInt(item.value, 10);
+
+                if (bitrate !== selectedBitrate) {
+                    playbackManager.setMaxStreamingBitrate({
+                        enableAutomaticBitrateDetection: !bitrate,
+                        maxBitrate: bitrate
+                    }, this);
+                }
+
+                return item.html;
+            }
+        };
+    }
+
+    /**
+     * Builds the audio track item for the artplayer settings menu,
+     * mirroring the native OSD audio menu.
+     * @private
+     */
+    #buildAudioSetting(options) {
+        const mediaSource = options.mediaSource;
+        const container = mediaSource.Container.toLowerCase();
+        const streams = getMediaStreamAudioTracks(mediaSource).filter((stream) => {
+            return this.isAudioStreamSupported(stream, this.#lastProfile, container);
+        });
+
+        return {
+            width: 200,
+            html: globalize.translate('Audio'),
+            icon: this.#artIconSvg('<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>'),
+            selector: streams.map((stream) => ({
+                html: DOMPurify.sanitize(stream.DisplayTitle),
+                value: String(stream.Index),
+                default: stream.Index === mediaSource.DefaultAudioStreamIndex
+            })),
+            onSelect: (item) => {
+                playbackManager.setAudioStreamIndex(parseInt(item.value, 10), this);
+
+                return item.html;
+            }
+        };
+    }
+
+    /**
+     * Builds the subtitle track item for the artplayer settings menu,
+     * mirroring the native OSD subtitle menu.
+     * @private
+     */
+    #buildSubtitleSetting(options) {
+        const mediaSource = options.mediaSource;
+        const currentIndex = mediaSource.DefaultSubtitleStreamIndex == null ? -1 : mediaSource.DefaultSubtitleStreamIndex;
+
+        const streams = getMediaStreamTextTracks(mediaSource);
+        const selector = [{
+            html: globalize.translate('Off'),
+            value: '-1',
+            default: currentIndex === -1
+        }];
+
+        streams.forEach((stream) => {
+            selector.push({
+                html: DOMPurify.sanitize(stream.DisplayTitle),
+                value: String(stream.Index),
+                default: stream.Index === currentIndex
+            });
+        });
+
+        return {
+            width: 220,
+            html: globalize.translate('Subtitles'),
+            icon: this.#artIconSvg('<path d="M4 6h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path d="M6 12h5"/><path d="M6 16h8"/>'),
+            selector: selector,
+            onSelect: (item) => {
+                playbackManager.setSubtitleStreamIndex(parseInt(item.value, 10), this);
+
+                return item.html;
+            }
+        };
+    }
+
+    /**
      * Creates an artplayer instance in the given container and wires it up
      * so the underlying <video> element drives Jellyfin's playback logic.
      * @private
@@ -1899,6 +2017,11 @@ export class HtmlVideoPlayer {
                 autoMini: false,
                 screenshot: false,
                 setting: true,
+                settings: [
+                    this.#buildQualitySetting(options),
+                    this.#buildAudioSetting(options),
+                    this.#buildSubtitleSetting(options)
+                ],
                 loop: false,
                 flip: true,
                 playbackRate: true,
