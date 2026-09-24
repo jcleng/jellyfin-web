@@ -2,6 +2,9 @@
 
 增加: 支持屏幕拖动进度,长按倍速,字幕设置字体大小和底部位置等
 
+使用: 把dist构建的文件覆盖原文件
+`docker cp . jellyfin:/usr/share/jellyfin/web/`
+
 ![img/Screenshot_2026-09-24-23-00-30-508_net.waterfox.android.release.jpg](img/Screenshot_2026-09-24-23-00-30-508_net.waterfox.android.release.jpg)
 
 <h1 align="center">Jellyfin Web</h1>
