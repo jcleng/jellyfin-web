@@ -2262,8 +2262,36 @@ export class HtmlVideoPlayer {
         }
 
         const info = bestWidth && trickplays[bestWidth];
-        if (!info) {
+        if (!info || !info.TileWidth || !info.TileHeight) {
             return;
+        }
+
+        let $thumbnails = art.controls?.thumbnails;
+        const $progress = art.template?.$progress;
+        if (!$progress) {
+            return;
+        }
+
+        // Artplayer normally creates this control, but if the loaded build lacks
+        // it, attach an equivalent bubble to the progress bar so the preview
+        // still works (same styles as the built-in control).
+        if (!$thumbnails) {
+            $thumbnails = document.createElement('div');
+            $thumbnails.className = 'art-control-thumbnails';
+            Object.assign($thumbnails.style, {
+                position: 'absolute',
+                bottom: 'calc(var(--art-bottom-gap, 5px) + 10px)',
+                left: '0',
+                width: '160px',
+                height: '90px',
+                backgroundColor: 'var(--art-widget-background, rgba(0, 0, 0, 0.5))',
+                borderRadius: '8px',
+                transform: 'scale(0.5)',
+                opacity: '0',
+                transition: 'all 0.2s',
+                zIndex: '9'
+            });
+            $progress.appendChild($thumbnails);
         }
 
         const apiClient = ServerConnections.getApiClient(item.ServerId);
@@ -2275,50 +2303,99 @@ export class HtmlVideoPlayer {
             }
         );
 
-        const $thumbnails = art.controls?.thumbnails;
-        const $progress = art.template?.$progress;
-        if (!$thumbnails || !$progress) {
-            return;
-        }
-
         const tileSize = info.TileWidth * info.TileHeight;
         const totalTiles = Math.ceil(durationMs / info.Interval);
         const scale = 0.85;
         const tileWidth = info.Width * scale;
         const tileHeight = info.Height * scale;
 
-        // Cache loaded sprite sheets so hovering doesn't re-request images, and
-        // only swap the background once the image has actually loaded to avoid
-        // showing a blank/flickering thumbnail while it downloads.
-        const sheetCache = new Map();
-        const getSheetImage = (sheet) => {
-            if (!sheetCache.has(sheet)) {
-                sheetCache.set(sheet, new Promise((resolve) => {
-                    const image = new Image();
-                    image.onload = () => resolve({
-                        src: getSheetUrl(sheet),
-                        width: image.naturalWidth,
-                        height: image.naturalHeight
-                    });
-                    image.onerror = () => resolve(null);
-                    image.src = getSheetUrl(sheet);
-                }));
-            }
-
-            return sheetCache.get(sheet);
+        // Artplayer hides the thumbnails element (opacity 0, scale 0.5) unless
+        // the player root carries the "art-progress-hover" class, so the preview
+        // is shown/hidden directly via inline styles instead of relying on that
+        // external CSS gate. Inline styles take precedence here because the
+        // artplayer rules are not flagged !important.
+        const showBubble = () => {
+            $thumbnails.style.opacity = '1';
+            $thumbnails.style.transform = 'scale(1)';
         };
 
+        // Cache loaded sprite sheets so hovering doesn't re-request images.
+        // The last sheet may hold fewer tiles than the full grid, so the
+        // background size is derived from the loaded image's real dimensions.
+        const sheetImages = new Map();
         let currentSheet = -1;
+        let dragHideTimer;
 
-        art.on('setBar', (type, percentage) => {
-            if (type !== 'hover') {
+        const clearDragHideTimer = () => {
+            if (dragHideTimer) {
+                window.clearTimeout(dragHideTimer);
+                dragHideTimer = null;
+            }
+        };
+
+        const hideBubble = () => {
+            clearDragHideTimer();
+            $thumbnails.style.opacity = '0';
+            $thumbnails.style.transform = 'scale(0.5)';
+        };
+
+        const applySheet = (sheet) => {
+            if (currentSheet !== sheet) {
+                return;
+            }
+
+            const image = sheetImages.get(sheet);
+            if (!image || !image.naturalWidth) {
+                return;
+            }
+
+            const actualTileWidth = image.naturalWidth / info.TileWidth;
+            const ratio = tileWidth / actualTileWidth;
+            $thumbnails.style.backgroundImage = `url('${image.src}')`;
+            $thumbnails.style.backgroundSize = `${image.naturalWidth * ratio}px ${image.naturalHeight * ratio}px`;
+        };
+
+        const loadSheet = (sheet) => {
+            if (sheetImages.has(sheet)) {
+                return;
+            }
+
+            const image = new Image();
+            image.onload = () => applySheet(sheet);
+            image.onerror = () => {
+                // Drop the failed entry so the next hover retries instead of
+                // keeping the preview blank for the whole sheet.
+                sheetImages.delete(sheet);
+                if (currentSheet === sheet) {
+                    currentSheet = -1;
+                }
+            };
+            image.src = getSheetUrl(sheet);
+            sheetImages.set(sheet, image);
+        };
+
+        art.on('setBar', (type, percentage, event) => {
+            // Show on progress hover and while a drag/seek is in progress
+            // (the built-in thumbnails handler behaves the same way).
+            const isDragging = type === 'played' && !!event;
+            if (type !== 'hover' && !isDragging) {
+                return;
+            }
+
+            // Auto-hide shortly after a drag ends, since no "hover" event is
+            // emitted once the pointer or finger is released (touch seeks in
+            // particular would otherwise leave the preview stuck on screen).
+            if (isDragging) {
+                clearDragHideTimer();
+                dragHideTimer = window.setTimeout(hideBubble, 600);
+            }
+
+            if (percentage <= 0 || percentage >= 1 || $progress.clientWidth <= 0) {
+                hideBubble();
                 return;
             }
 
             const posWidth = $progress.clientWidth * percentage;
-            if (posWidth <= 0) {
-                return;
-            }
 
             const tile = Math.min(Math.floor(percentage * durationMs / info.Interval), totalTiles - 1);
             const sheet = Math.floor(tile / tileSize);
@@ -2326,26 +2403,10 @@ export class HtmlVideoPlayer {
             const offsetX = (tileInSheet % info.TileWidth) * tileWidth;
             const offsetY = Math.floor(tileInSheet / info.TileWidth) * tileHeight;
 
-            if (sheet !== currentSheet) {
-                currentSheet = sheet;
-                getSheetImage(sheet).then((sheetImage) => {
-                    // Ignore stale loads when the pointer already moved to a
-                    // different sheet, or the sheet failed to load.
-                    if (!sheetImage || currentSheet !== sheet) {
-                        return;
-                    }
+            showBubble();
 
-                    // Use the actual dimensions of the loaded sheet: the last
-                    // sheet may hold fewer tiles than the full grid, so scaling
-                    // by the constant tile count would misplace the preview.
-                    const actualTileWidth = sheetImage.width / info.TileWidth;
-                    const ratio = tileWidth / actualTileWidth;
-
-                    $thumbnails.style.backgroundImage = `url('${sheetImage.src}')`;
-                    $thumbnails.style.backgroundSize = `${sheetImage.width * ratio}px ${sheetImage.height * ratio}px`;
-                });
-            }
-
+            // Resize the bubble immediately so it is visible while the sheet
+            // image is still loading; the sheet is applied once it decodes.
             $thumbnails.style.width = `${tileWidth}px`;
             $thumbnails.style.height = `${tileHeight}px`;
             $thumbnails.style.backgroundPosition = `-${offsetX}px -${offsetY}px`;
@@ -2356,6 +2417,12 @@ export class HtmlVideoPlayer {
                 $thumbnails.style.left = `${$progress.clientWidth - tileWidth}px`;
             } else {
                 $thumbnails.style.left = `${posWidth - tileWidth / 2}px`;
+            }
+
+            if (sheet !== currentSheet) {
+                currentSheet = sheet;
+                loadSheet(sheet);
+                applySheet(sheet);
             }
         });
     }
