@@ -1,3 +1,9 @@
+### 使用`artplayer`替换默认的播放器对移动端更加友好
+
+增加: 支持屏幕拖动进度,长按倍速,字幕设置字体大小和底部位置等
+
+![img/Screenshot_2026-09-24-23-00-30-508_net.waterfox.android.release.jpg](img/Screenshot_2026-09-24-23-00-30-508_net.waterfox.android.release.jpg)
+
 <h1 align="center">Jellyfin Web</h1>
 <h3 align="center">Part of the <a href="https://jellyfin.org">Jellyfin Project</a></h3>
 
