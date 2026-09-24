@@ -1998,13 +1998,33 @@ export class HtmlVideoPlayer {
      * @private
      */
     #buildSubtitleOffsetSetting() {
-        const step = 0.5;
-        const round = (value) => Math.round(value * 100) / 100;
-
-        return {
+        return this.#buildNumberStepperSetting({
             width: 280,
             html: globalize.translate('SubtitleOffset'),
             icon: this.#artIconSvg('<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>'),
+            getValue: () => this.getSubtitleOffset(),
+            setValue: (value) => this.setSubtitleOffset(value),
+            min: -10,
+            max: 10,
+            step: 0.5,
+            inputStep: 0.1
+        });
+    }
+
+    /**
+     * Builds a settings row with decrease/increase buttons and a numeric
+     * input, shared by the subtitle offset / font size / position controls.
+     * @param {Object} config Configuration object.
+     * @returns {Object} An artplayer settings item.
+     * @private
+     */
+    #buildNumberStepperSetting(config) {
+        const round = (value) => Math.round(value * 100) / 100;
+
+        return {
+            width: config.width,
+            html: config.html,
+            icon: config.icon,
             onClick: () => '',
             mounted: ($item) => {
                 const $right = $item.querySelector('.art-setting-item-right');
@@ -2017,13 +2037,15 @@ export class HtmlVideoPlayer {
 
                 const input = document.createElement('input');
                 input.type = 'number';
-                input.step = '0.1';
-                input.value = String(this.getSubtitleOffset());
+                input.step = String(config.inputStep ?? config.step);
+                input.min = String(config.min);
+                input.max = String(config.max);
+                input.value = String(round(config.getValue()));
 
                 const apply = (value) => {
-                    const offset = round(Math.max(-10, Math.min(10, value)));
-                    this.setSubtitleOffset(offset);
-                    input.value = String(offset);
+                    const next = round(Math.max(config.min, Math.min(config.max, value)));
+                    config.setValue(next);
+                    input.value = String(next);
                 };
 
                 const buttonDecrease = document.createElement('button');
@@ -2031,7 +2053,7 @@ export class HtmlVideoPlayer {
                 buttonDecrease.textContent = '−';
                 buttonDecrease.addEventListener('click', (event) => {
                     event.stopPropagation();
-                    apply(this.getSubtitleOffset() - step);
+                    apply(config.getValue() - config.step);
                 });
 
                 const buttonIncrease = document.createElement('button');
@@ -2039,7 +2061,7 @@ export class HtmlVideoPlayer {
                 buttonIncrease.textContent = '+';
                 buttonIncrease.addEventListener('click', (event) => {
                     event.stopPropagation();
-                    apply(this.getSubtitleOffset() + step);
+                    apply(config.getValue() + config.step);
                 });
 
                 input.addEventListener('keydown', (event) => {
@@ -2051,7 +2073,7 @@ export class HtmlVideoPlayer {
                 input.addEventListener('change', () => {
                     const value = parseFloat(input.value);
                     if (Number.isNaN(value)) {
-                        input.value = String(this.getSubtitleOffset());
+                        input.value = String(round(config.getValue()));
                     } else {
                         apply(value);
                     }
@@ -2063,6 +2085,143 @@ export class HtmlVideoPlayer {
                 $right.appendChild(container);
             }
         };
+    }
+
+    /**
+     * Builds the subtitle font size item for the artplayer settings menu.
+     * The value is stored (in em) on the shared subtitle appearance settings
+     * and takes precedence over the discrete textSize presets.
+     * @returns {Object} An artplayer settings item.
+     * @private
+     */
+    #buildSubtitleFontSizeSetting() {
+        return this.#buildNumberStepperSetting({
+            width: 280,
+            html: globalize.translate('LabelTextSize'),
+            icon: this.#artIconSvg('<path d="M4 6h6M7 6v7"/><path d="M13 10h7M16.5 10v6"/>'),
+            getValue: () => this.getSubtitleFontSize(),
+            setValue: (value) => this.#setSubtitleFontSize(value),
+            min: 0.5,
+            max: 3,
+            step: 0.1,
+            inputStep: 0.1
+        });
+    }
+
+    /**
+     * Builds the subtitle distance-from-bottom item for the artplayer
+     * settings menu. Stored as verticalPosition (negative = from bottom).
+     * @returns {Object} An artplayer settings item.
+     * @private
+     */
+    #buildSubtitleVerticalPositionSetting() {
+        return this.#buildNumberStepperSetting({
+            width: 280,
+            html: globalize.translate('LabelSubtitleVerticalPosition'),
+            icon: this.#artIconSvg('<path d="M12 4v10"/><path d="M8 10l4 4 4-4"/><rect x="4" y="17" width="16" height="3" rx="1"/>'),
+            getValue: () => this.getSubtitleVerticalPosition(),
+            setValue: (value) => this.#setSubtitleVerticalPosition(value),
+            min: 1,
+            max: 16,
+            step: 1,
+            inputStep: 1
+        });
+    }
+
+    /**
+     * Current subtitle font size in em (falls back to the textSize preset).
+     * @returns {number} Font size in em.
+     * @private
+     */
+    getSubtitleFontSize() {
+        const appearance = { ...userSettings.getSubtitleAppearanceSettings() };
+        const fontSize = Number.parseFloat(appearance.fontSize);
+        if (Number.isFinite(fontSize) && fontSize > 0) {
+            return Math.round(fontSize * 100) / 100;
+        }
+
+        const presets = { smaller: 0.8, small: 1, medium: 1.36, large: 1.72, larger: 2, extralarge: 2.2 };
+        return presets[appearance.textSize] ?? 1.36;
+    }
+
+    /**
+     * Current subtitle distance from the bottom edge of the player, in
+     * UI steps (1..16; default 3).
+     * @returns {number} Distance from bottom.
+     * @private
+     */
+    getSubtitleVerticalPosition() {
+        const appearance = { ...userSettings.getSubtitleAppearanceSettings() };
+        const position = Number.parseInt(appearance.verticalPosition, 10);
+        if (Number.isFinite(position) && position < 0) {
+            return Math.min(Math.max(-position, 1), 16);
+        }
+
+        return 3;
+    }
+
+    /** @private */
+    #setSubtitleFontSize(value) {
+        const appearance = { ...userSettings.getSubtitleAppearanceSettings() };
+        appearance.fontSize = Math.round(Math.max(0.5, Math.min(3, value)) * 100) / 100;
+        userSettings.setSubtitleAppearanceSettings(appearance);
+        this.#applySubtitleAppearance();
+    }
+
+    /** @private */
+    #setSubtitleVerticalPosition(value) {
+        const appearance = { ...userSettings.getSubtitleAppearanceSettings() };
+        appearance.verticalPosition = -Math.round(Math.max(1, Math.min(16, value)));
+        userSettings.setSubtitleAppearanceSettings(appearance);
+        this.#applySubtitleAppearance();
+    }
+
+    /**
+     * Re-applies the saved subtitle appearance settings to the currently
+     * active subtitle elements (custom subtitle DOM and native cue styles).
+     * @private
+     */
+    #applySubtitleAppearance() {
+        if (this.#videoSubtitlesElem?.parentNode) {
+            this.setSubtitleAppearance(this.#videoSubtitlesElem.parentNode, this.#videoSubtitlesElem);
+        }
+
+        if (this.#videoSecondarySubtitlesElem?.parentNode) {
+            this.setSubtitleAppearance(this.#videoSecondarySubtitlesElem.parentNode, this.#videoSecondarySubtitlesElem);
+        }
+
+        this.setCueAppearance();
+        this.#updateCueLines();
+    }
+
+    /**
+     * Recomputes the cue line for native text tracks after the vertical
+     * position setting changed, matching the line math used when rendering.
+     * @private
+     */
+    #updateCueLines() {
+        const appearance = userSettings.getSubtitleAppearanceSettings();
+        const cueLine = Number.parseInt(appearance.verticalPosition, 10);
+        if (!Number.isFinite(cueLine)) {
+            return;
+        }
+
+        const video = this.#mediaElement;
+        if (!video) {
+            return;
+        }
+
+        for (const track of Array.from(video.textTracks || [])) {
+            if (!track.cues || !track.label?.includes('manualTrack')) {
+                continue;
+            }
+
+            for (const cue of Array.from(track.cues)) {
+                const text = String(cue.text || '').replace(/\u200E/g, '');
+                const lineCount = (text.match(/\n/g) || []).length;
+                cue.line = cueLine < 0 ? cueLine - lineCount : cueLine;
+            }
+        }
     }
 
     /**
@@ -2128,6 +2287,27 @@ export class HtmlVideoPlayer {
         const tileWidth = info.Width * scale;
         const tileHeight = info.Height * scale;
 
+        // Cache loaded sprite sheets so hovering doesn't re-request images, and
+        // only swap the background once the image has actually loaded to avoid
+        // showing a blank/flickering thumbnail while it downloads.
+        const sheetCache = new Map();
+        const getSheetImage = (sheet) => {
+            if (!sheetCache.has(sheet)) {
+                sheetCache.set(sheet, new Promise((resolve) => {
+                    const image = new Image();
+                    image.onload = () => resolve({
+                        src: getSheetUrl(sheet),
+                        width: image.naturalWidth,
+                        height: image.naturalHeight
+                    });
+                    image.onerror = () => resolve(null);
+                    image.src = getSheetUrl(sheet);
+                }));
+            }
+
+            return sheetCache.get(sheet);
+        };
+
         let currentSheet = -1;
 
         art.on('setBar', (type, percentage) => {
@@ -2148,8 +2328,22 @@ export class HtmlVideoPlayer {
 
             if (sheet !== currentSheet) {
                 currentSheet = sheet;
-                $thumbnails.style.backgroundImage = `url('${getSheetUrl(sheet)}')`;
-                $thumbnails.style.backgroundSize = `${info.Width * info.TileWidth * scale}px ${info.Height * info.TileHeight * scale}px`;
+                getSheetImage(sheet).then((sheetImage) => {
+                    // Ignore stale loads when the pointer already moved to a
+                    // different sheet, or the sheet failed to load.
+                    if (!sheetImage || currentSheet !== sheet) {
+                        return;
+                    }
+
+                    // Use the actual dimensions of the loaded sheet: the last
+                    // sheet may hold fewer tiles than the full grid, so scaling
+                    // by the constant tile count would misplace the preview.
+                    const actualTileWidth = sheetImage.width / info.TileWidth;
+                    const ratio = tileWidth / actualTileWidth;
+
+                    $thumbnails.style.backgroundImage = `url('${sheetImage.src}')`;
+                    $thumbnails.style.backgroundSize = `${sheetImage.width * ratio}px ${sheetImage.height * ratio}px`;
+                });
             }
 
             $thumbnails.style.width = `${tileWidth}px`;
@@ -2195,7 +2389,9 @@ export class HtmlVideoPlayer {
                     this.#buildQualitySetting(options),
                     this.#buildAudioSetting(options),
                     this.#buildSubtitleSetting(options),
-                    this.#buildSubtitleOffsetSetting()
+                    this.#buildSubtitleOffsetSetting(),
+                    this.#buildSubtitleFontSizeSetting(),
+                    this.#buildSubtitleVerticalPositionSetting()
                 ],
                 loop: false,
                 flip: true,

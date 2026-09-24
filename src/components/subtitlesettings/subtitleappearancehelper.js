@@ -6,27 +6,36 @@
 function getTextStyles(settings, preview) {
     const list = [];
 
-    switch (settings.textSize || '') {
-        case 'smaller':
-            list.push({ name: 'font-size', value: '.8em' });
-            break;
-        case 'small':
-            list.push({ name: 'font-size', value: 'inherit' });
-            break;
-        case 'larger':
-            list.push({ name: 'font-size', value: '2em' });
-            break;
-        case 'extralarge':
-            list.push({ name: 'font-size', value: '2.2em' });
-            break;
-        case 'large':
-            list.push({ name: 'font-size', value: '1.72em' });
-            break;
-        case 'medium':
-        default:
-            list.push({ name: 'font-size', value: '1.36em' });
-            break;
+    // A numeric font size (in em) overrides the named textSize presets.
+    // It is set by the in-player subtitle size control.
+    const fontSize = Number.parseFloat(settings.fontSize);
+    let fontSizeValue;
+    if (Number.isFinite(fontSize) && fontSize > 0) {
+        fontSizeValue = `${fontSize}em`;
+    } else {
+        switch (settings.textSize || '') {
+            case 'smaller':
+                fontSizeValue = '.8em';
+                break;
+            case 'small':
+                fontSizeValue = 'inherit';
+                break;
+            case 'larger':
+                fontSizeValue = '2em';
+                break;
+            case 'extralarge':
+                fontSizeValue = '2.2em';
+                break;
+            case 'large':
+                fontSizeValue = '1.72em';
+                break;
+            case 'medium':
+            default:
+                fontSizeValue = '1.36em';
+                break;
+        }
     }
+    list.push({ name: 'font-size', value: fontSizeValue });
 
     switch (settings.textWeight || '') {
         case 'bold':
