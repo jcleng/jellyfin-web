@@ -2066,6 +2066,107 @@ export class HtmlVideoPlayer {
     }
 
     /**
+     * Enables trickplay thumbnail previews on the progress bar.
+     * Jellyfin serves trickplay previews as multiple sprite sheets
+     * (Videos/{Id}/Trickplay/{Width}/{index}.jpg) instead of a single sprite,
+     * so the sheet matching the hovered position is loaded on demand.
+     * @private
+     */
+    #enableTrickplayPreview(art, options) {
+        const mediaSource = options.mediaSource;
+        const item = options.item;
+        const mediaSourceId = mediaSource && mediaSource.Id;
+
+        if (!item || !item.Trickplay || !mediaSourceId) {
+            return;
+        }
+
+        const trickplays = item.Trickplay[mediaSourceId];
+        if (!trickplays) {
+            return;
+        }
+
+        const durationMs = mediaSource.RunTimeTicks ? mediaSource.RunTimeTicks / 10000 : 0;
+        if (!durationMs) {
+            return;
+        }
+
+        // Prefer the highest resolution that fits within 20% of the screen width (mirrors the native OSD)
+        let bestWidth;
+        const maxWidth = window.screen.width * window.devicePixelRatio * 0.2;
+        for (const [, info] of Object.entries(trickplays)) {
+            if (!bestWidth
+                    || (info.Width < bestWidth && bestWidth > maxWidth)
+                    || (info.Width > bestWidth && info.Width <= maxWidth)) {
+                bestWidth = info.Width;
+            }
+        }
+
+        const info = bestWidth && trickplays[bestWidth];
+        if (!info) {
+            return;
+        }
+
+        const apiClient = ServerConnections.getApiClient(item.ServerId);
+        const getSheetUrl = (index) => apiClient.getUrl(
+            `Videos/${item.Id}/Trickplay/${info.Width}/${index}.jpg`,
+            {
+                ApiKey: apiClient.accessToken(),
+                MediaSourceId: mediaSourceId
+            }
+        );
+
+        const $thumbnails = art.controls?.thumbnails;
+        const $progress = art.template?.$progress;
+        if (!$thumbnails || !$progress) {
+            return;
+        }
+
+        const tileSize = info.TileWidth * info.TileHeight;
+        const totalTiles = Math.ceil(durationMs / info.Interval);
+        const scale = 0.85;
+        const tileWidth = info.Width * scale;
+        const tileHeight = info.Height * scale;
+
+        let currentSheet = -1;
+
+        art.on('setBar', (type, percentage) => {
+            if (type !== 'hover') {
+                return;
+            }
+
+            const posWidth = $progress.clientWidth * percentage;
+            if (posWidth <= 0) {
+                return;
+            }
+
+            const tile = Math.min(Math.floor(percentage * durationMs / info.Interval), totalTiles - 1);
+            const sheet = Math.floor(tile / tileSize);
+            const tileInSheet = tile % tileSize;
+            const offsetX = (tileInSheet % info.TileWidth) * tileWidth;
+            const offsetY = Math.floor(tileInSheet / info.TileWidth) * tileHeight;
+
+            if (sheet !== currentSheet) {
+                currentSheet = sheet;
+                $thumbnails.style.backgroundImage = `url('${getSheetUrl(sheet)}')`;
+                $thumbnails.style.backgroundSize = `${info.Width * info.TileWidth * scale}px ${info.Height * info.TileHeight * scale}px`;
+            }
+
+            $thumbnails.style.width = `${tileWidth}px`;
+            $thumbnails.style.height = `${tileHeight}px`;
+            $thumbnails.style.backgroundPosition = `-${offsetX}px -${offsetY}px`;
+
+            if (posWidth <= tileWidth / 2) {
+                $thumbnails.style.left = '0';
+            } else if (posWidth > $progress.clientWidth - tileWidth / 2) {
+                $thumbnails.style.left = `${$progress.clientWidth - tileWidth}px`;
+            } else {
+                $thumbnails.style.left = `${posWidth - tileWidth / 2}px`;
+            }
+        });
+    }
+
+    /**
      * Creates an artplayer instance in the given container and wires it up
      * so the underlying <video> element drives Jellyfin's playback logic.
      * @private
@@ -2146,6 +2247,8 @@ export class HtmlVideoPlayer {
             art = null;
             return this.#wireVideoElement(nativeVideo, options, playerDlg, null);
         }
+
+        this.#enableTrickplayPreview(art, options);
 
         return this.#wireVideoElement(art.video, options, playerDlg, art);
     }
