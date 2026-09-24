@@ -1747,11 +1747,18 @@ export class HtmlVideoPlayer {
                 }
 
                 if (selectedTrackEvent?.Text) {
-                    subtitleTextElement.innerHTML = DOMPurify.sanitize(
-                        normalizeTrackEventText(selectedTrackEvent.Text, true));
+                    // Only rewrite the DOM when the text actually changed:
+                    // timeupdate fires ~4x/s and repeatedly assigning the same
+                    // innerHTML causes needless DOMPurify/parse and DOM churn.
+                    const text = normalizeTrackEventText(selectedTrackEvent.Text, true);
+                    if (subtitleTextElement.dataset.renderedText !== text) {
+                        subtitleTextElement.innerHTML = DOMPurify.sanitize(text);
+                        subtitleTextElement.dataset.renderedText = text;
+                    }
                     subtitleTextElement.classList.remove('hide');
                 } else {
                     subtitleTextElement.classList.add('hide');
+                    delete subtitleTextElement.dataset.renderedText;
                 }
             }
         }
@@ -1843,7 +1850,17 @@ export class HtmlVideoPlayer {
             this.#savedUpNextParent = upNextContainer.parentNode;
             document.body.appendChild(upNextContainer);
             upNextContainer.classList.add('upNextContainer-onTop');
+
+            // The overlay has been lifted, so stop watching the whole document
+            // for DOM mutations. Otherwise every subtitle/artplayer DOM change
+            // during playback runs this callback (unnecessary per-mutation
+            // overhead for the whole session).
+            this.#upNextObserver?.disconnect();
+            this.#upNextObserver = null;
+            return true;
         }
+
+        return false;
     }
 
     /**
@@ -1852,7 +1869,10 @@ export class HtmlVideoPlayer {
      * @private
      */
     #watchUpNextOverlay() {
-        this.#liftUpNextOverlay();
+        if (this.#liftUpNextOverlay()) {
+            return;
+        }
+
         if (!this.#upNextObserver && typeof MutationObserver === 'function') {
             this.#upNextObserver = new MutationObserver(() => this.#liftUpNextOverlay());
             this.#upNextObserver.observe(document.body, { childList: true, subtree: true });
@@ -2278,6 +2298,20 @@ export class HtmlVideoPlayer {
             return;
         }
 
+        // Cache the progress bar width. Reading clientWidth inside the setBar
+        // handler would force a layout after each style write, and that handler
+        // fires on every hover/drag move (potentially 60-120 times a second).
+        let barWidth = $progress.clientWidth;
+        const updateBarWidth = () => {
+            barWidth = $progress.clientWidth;
+        };
+        const onWindowResize = updateBarWidth;
+        window.addEventListener('resize', onWindowResize);
+        art.on('resize', updateBarWidth);
+        art.on('destroy', () => {
+            window.removeEventListener('resize', onWindowResize);
+        });
+
         // Artplayer normally creates this control, but if the loaded build lacks
         // it, attach an equivalent bubble to the progress bar so the preview
         // still works (same styles as the built-in control).
@@ -2396,12 +2430,12 @@ export class HtmlVideoPlayer {
                 dragHideTimer = window.setTimeout(hideBubble, 600);
             }
 
-            if (percentage <= 0 || percentage >= 1 || $progress.clientWidth <= 0) {
+            if (percentage <= 0 || percentage >= 1 || barWidth <= 0) {
                 hideBubble();
                 return;
             }
 
-            const posWidth = $progress.clientWidth * percentage;
+            const posWidth = barWidth * percentage;
 
             const tile = Math.min(Math.floor(percentage * durationMs / info.Interval), totalTiles - 1);
             const sheet = Math.floor(tile / tileSize);
@@ -2419,8 +2453,8 @@ export class HtmlVideoPlayer {
 
             if (posWidth <= tileWidth / 2) {
                 $thumbnails.style.left = '0';
-            } else if (posWidth > $progress.clientWidth - tileWidth / 2) {
-                $thumbnails.style.left = `${$progress.clientWidth - tileWidth}px`;
+            } else if (posWidth > barWidth - tileWidth / 2) {
+                $thumbnails.style.left = `${barWidth - tileWidth}px`;
             } else {
                 $thumbnails.style.left = `${posWidth - tileWidth / 2}px`;
             }
