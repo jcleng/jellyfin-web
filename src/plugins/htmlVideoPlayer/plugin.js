@@ -1658,7 +1658,13 @@ export class HtmlVideoPlayer {
                 return;
             }
 
-            if (useCustomSubtitles(userSettings)) {
+            // The custom subtitle element path is browser-agnostic DOM rendering
+            // and is already used for Firefox/Edge/Safari etc. (see
+            // useCustomSubtitles). The artplayer player must also use it:
+            // Chromium's native text-track cues are unreliable when the video
+            // is wrapped by artplayer, which leaves SRT subtitles invisible on
+            // desktop Chrome while they render fine on e.g. mobile Firefox.
+            if (useCustomSubtitles(userSettings) || this.#artPlayer) {
                 this.renderSubtitlesWithCustomElement(videoElement, track, item, targetTextTrackIndex);
                 return;
             }
