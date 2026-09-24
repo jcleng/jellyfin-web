@@ -1890,7 +1890,7 @@ export class HtmlVideoPlayer {
                 url: '',
                 poster: options.backdropUrl || '',
                 title: String(options.item?.Name || ''),
-                volume: getSavedVolume(),
+                volume: Number(getSavedVolume()),
                 isLive: !options.mediaSource?.RunTimeTicks,
                 muted: false,
                 autoplay: appHost.supports(AppFeature.HtmlVideoAutoplay),
