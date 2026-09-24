@@ -351,6 +351,14 @@ export class HtmlVideoPlayer {
      * @type {any | null | undefined}
      */
     #artPlayer;
+    /**
+     * @type {ParentNode | null | undefined}
+     */
+    #savedUpNextParent;
+    /**
+     * @type {MutationObserver | null | undefined}
+     */
+    #upNextObserver;
 
     /**
      * @private (used in other files)
@@ -1812,6 +1820,58 @@ export class HtmlVideoPlayer {
             art.destroy();
             this.#artPlayer = null;
         }
+
+        document.body.classList.remove('htmlVideoPlayer-artplayer');
+        this.#restoreUpNextOverlay();
+    }
+
+    /**
+     * The "Up Next" overlay lives inside the video OSD page, which is rendered
+     * beneath the artplayer layer. Lift it up to <body> so it stays usable.
+     * @private
+     */
+    #liftUpNextOverlay() {
+        const upNextContainer = document.querySelector('#videoOsdPage .upNextContainer');
+        if (upNextContainer && upNextContainer.parentNode !== document.body) {
+            this.#savedUpNextParent = upNextContainer.parentNode;
+            document.body.appendChild(upNextContainer);
+            upNextContainer.classList.add('upNextContainer-onTop');
+        }
+    }
+
+    /**
+     * The OSD page is only created after playback starts (OSD navigation), so
+     * watch the document for it and lift the "Up Next" overlay when it appears.
+     * @private
+     */
+    #watchUpNextOverlay() {
+        this.#liftUpNextOverlay();
+        if (!this.#upNextObserver && typeof MutationObserver === 'function') {
+            this.#upNextObserver = new MutationObserver(() => this.#liftUpNextOverlay());
+            this.#upNextObserver.observe(document.body, { childList: true, subtree: true });
+        }
+    }
+
+    /**
+     * @private
+     */
+    #restoreUpNextOverlay() {
+        if (this.#upNextObserver) {
+            this.#upNextObserver.disconnect();
+            this.#upNextObserver = null;
+        }
+
+        const upNextContainer = document.querySelector('.upNextContainer-onTop');
+        if (upNextContainer) {
+            upNextContainer.classList.remove('upNextContainer-onTop');
+            const parent = this.#savedUpNextParent;
+            this.#savedUpNextParent = null;
+            if (parent && parent.isConnected) {
+                parent.appendChild(upNextContainer);
+            } else {
+                upNextContainer.remove();
+            }
+        }
     }
 
     /**
@@ -1850,6 +1910,7 @@ export class HtmlVideoPlayer {
                 backdrop: true,
                 playsInline: true,
                 airplay: true,
+                fastForward: true,
                 theme: '#00a4dc',
                 lang: navigator.language?.toLowerCase() || 'en',
                 moreVideoAttr: {
@@ -1857,7 +1918,21 @@ export class HtmlVideoPlayer {
                     preload: browser.web0s ? 'auto' : 'metadata',
                     disablePictureInPicture: true,
                     controlsList: 'nodownload noplaybackrate noremoteplayback'
-                }
+                },
+                controls: [
+                    // The built-in OSD (with its back button) is rendered below artplayer,
+                    // so expose an exit control to stop playback.
+                    {
+                        name: 'exit',
+                        index: 20,
+                        position: 'right',
+                        html: '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+                        tooltip: globalize.translate('ButtonBack'),
+                        click: () => {
+                            playbackManager.stop(this);
+                        }
+                    }
+                ]
             });
         } catch (err) {
             // Fall back to a plain native video element if artplayer cannot be created
@@ -1900,6 +1975,14 @@ export class HtmlVideoPlayer {
         videoElement.addEventListener('waiting', this.onWaiting);
         if (options.backdropUrl) {
             videoElement.poster = options.backdropUrl;
+        }
+
+        if (art) {
+            // artplayer replaces the built-in video OSD, so keep it above the OSD page
+            // and suppress the native context menu (e.g. download).
+            document.body.classList.add('htmlVideoPlayer-artplayer');
+            videoElement.addEventListener('contextmenu', (e) => e.preventDefault());
+            this.#watchUpNextOverlay();
         }
 
         this.#videoDialog = playerDlg;

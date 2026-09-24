@@ -13,6 +13,19 @@
     z-index: 1000;
 }
 
+/* artplayer replaces the built-in video OSD. The OSD page drops the container's
+   `onTop` class after navigation and would otherwise paint above the player,
+   hiding artplayer's controls. Keep the player above the OSD page while active. */
+.htmlVideoPlayer-artplayer .videoPlayerContainer {
+    z-index: 1000;
+}
+
+/* The "Up Next" overlay is re-parented to <body> while artplayer is active so it
+   still renders above the player. */
+.upNextContainer-onTop {
+    z-index: 1001;
+}
+
 .videoPlayerContainer .libassjs-canvas-parent {
     order: -1;
 }
@@ -72,6 +85,7 @@ video[controls]::-webkit-media-controls {
     display: flex;
     flex-direction: column;
     align-items: center;
+
     /* Render above the artplayer video but let artplayer's own overlay/controls stay interactive */
     z-index: 60;
     pointer-events: none;
