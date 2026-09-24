@@ -50,6 +50,46 @@ video[controls]::-webkit-media-controls {
     object-fit: contain;
 }
 
+/* Decrease/increase buttons and manual input for the subtitle offset setting */
+.art-video-player .art-settings .art-setting-item .art-setting-item-right .art-setting-item-offset {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.art-video-player .art-setting-item-offset button {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--art-border-radius, 3px);
+    color: var(--art-font-color, #fff);
+    background: rgba(255, 255, 255, 0.15);
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+}
+
+.art-video-player .art-setting-item-offset button:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+
+.art-video-player .art-setting-item-offset input {
+    width: 52px;
+    height: 22px;
+    padding: 0 4px;
+    border: 0;
+    border-radius: var(--art-border-radius, 3px);
+    color: var(--art-font-color, #fff);
+    background: rgba(255, 255, 255, 0.15);
+    text-align: center;
+    font-size: 12px;
+    outline: none;
+}
+
 .htmlvideoplayer::cue,
 .art-video::cue {
     background-color: transparent;

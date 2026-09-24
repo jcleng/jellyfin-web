@@ -1993,6 +1993,79 @@ export class HtmlVideoPlayer {
     }
 
     /**
+     * Builds the subtitle offset item for the artplayer settings menu.
+     * Provides quick decrease/increase buttons and a manual offset input.
+     * @private
+     */
+    #buildSubtitleOffsetSetting() {
+        const step = 0.5;
+        const round = (value) => Math.round(value * 100) / 100;
+
+        return {
+            width: 280,
+            html: globalize.translate('SubtitleOffset'),
+            icon: this.#artIconSvg('<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>'),
+            onClick: () => '',
+            mounted: ($item) => {
+                const $right = $item.querySelector('.art-setting-item-right');
+                if (!$right) {
+                    return;
+                }
+
+                const container = document.createElement('div');
+                container.className = 'art-setting-item-offset';
+
+                const input = document.createElement('input');
+                input.type = 'number';
+                input.step = '0.1';
+                input.value = String(this.getSubtitleOffset());
+
+                const apply = (value) => {
+                    const offset = round(Math.max(-10, Math.min(10, value)));
+                    this.setSubtitleOffset(offset);
+                    input.value = String(offset);
+                };
+
+                const buttonDecrease = document.createElement('button');
+                buttonDecrease.type = 'button';
+                buttonDecrease.textContent = '−';
+                buttonDecrease.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    apply(this.getSubtitleOffset() - step);
+                });
+
+                const buttonIncrease = document.createElement('button');
+                buttonIncrease.type = 'button';
+                buttonIncrease.textContent = '+';
+                buttonIncrease.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    apply(this.getSubtitleOffset() + step);
+                });
+
+                input.addEventListener('keydown', (event) => {
+                    event.stopPropagation();
+                    if (event.key === 'Enter') {
+                        input.blur();
+                    }
+                });
+                input.addEventListener('change', () => {
+                    const value = parseFloat(input.value);
+                    if (Number.isNaN(value)) {
+                        input.value = String(this.getSubtitleOffset());
+                    } else {
+                        apply(value);
+                    }
+                });
+
+                container.appendChild(buttonDecrease);
+                container.appendChild(input);
+                container.appendChild(buttonIncrease);
+                $right.appendChild(container);
+            }
+        };
+    }
+
+    /**
      * Creates an artplayer instance in the given container and wires it up
      * so the underlying <video> element drives Jellyfin's playback logic.
      * @private
@@ -2020,7 +2093,8 @@ export class HtmlVideoPlayer {
                 settings: [
                     this.#buildQualitySetting(options),
                     this.#buildAudioSetting(options),
-                    this.#buildSubtitleSetting(options)
+                    this.#buildSubtitleSetting(options),
+                    this.#buildSubtitleOffsetSetting()
                 ],
                 loop: false,
                 flip: true,
