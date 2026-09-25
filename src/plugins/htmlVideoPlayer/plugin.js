@@ -361,6 +361,23 @@ export class HtmlVideoPlayer {
      */
     #upNextObserver;
 
+    #onWindowKeyDown = (event) => {
+        const isEscape = event.key === 'Escape' || event.code === 'Escape';
+        if (!isEscape
+            || event.altKey
+            || event.ctrlKey
+            || event.metaKey
+            || event.shiftKey
+            || event.repeat
+            || !this.#mediaElement) {
+            return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        playbackManager.stop(this);
+    };
+
     /**
      * @private (used in other files)
      * @type {any | undefined}
@@ -977,6 +994,7 @@ export class HtmlVideoPlayer {
 
     destroy() {
         this.setSubtitleOffset.cancel();
+        document.removeEventListener('keydown', this.#onWindowKeyDown);
 
         destroyHlsPlayer(this);
         destroyFlvPlayer(this);
@@ -2596,6 +2614,9 @@ export class HtmlVideoPlayer {
         this.#videoDialog = playerDlg;
         this.#mediaElement = videoElement;
         this.#artPlayer = art;
+
+        document.removeEventListener('keydown', this.#onWindowKeyDown);
+        document.addEventListener('keydown', this.#onWindowKeyDown);
 
         return videoElement;
     }
