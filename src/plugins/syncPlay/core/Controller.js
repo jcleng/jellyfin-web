@@ -58,7 +58,7 @@ class Controller {
      */
     seek(positionTicks) {
         const apiClient = this.manager.getApiClient();
-        apiClient.requestSyncPlaySeek({
+        return apiClient.requestSyncPlaySeek({
             PositionTicks: positionTicks
         });
     }

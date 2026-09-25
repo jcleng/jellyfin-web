@@ -3,7 +3,7 @@ import escapeHtml from 'escape-html';
 import { PlayerEvent } from 'apps/legacy/features/playback/constants/playerEvent';
 import { AppFeature } from 'constants/appFeature';
 import { PluginType } from 'constants/pluginType';
-import { TICKS_PER_MINUTE, TICKS_PER_SECOND } from 'constants/time';
+import { TICKS_PER_MILLISECOND, TICKS_PER_MINUTE, TICKS_PER_SECOND } from 'constants/time';
 import { EventType } from 'constants/eventType';
 
 import { playbackManager } from 'components/playback/playbackmanager';
@@ -33,6 +33,7 @@ import { ServerConnections } from 'lib/jellyfin-apiclient';
 import LibraryMenu from 'scripts/libraryMenu';
 import { setBackdropTransparency, TRANSPARENCY_LEVEL } from 'components/backdrop/backdrop';
 import { pluginManager } from 'components/pluginManager';
+import { createSeekQueue, createSeekRepeat } from './seekRepeat';
 
 function getOpenedDialog() {
     return document.querySelector('.dialogContainer .dialog.opened');
@@ -607,6 +608,7 @@ export default function (view) {
     }
 
     function releaseCurrentPlayer() {
+        stopSeekRepeat();
         destroyStats();
         destroySubtitleSync();
         resetUpNextDialog();
@@ -1312,8 +1314,18 @@ export default function (view) {
             case 'Right':
                 if (!e.shiftKey) {
                     e.preventDefault();
-                    playbackManager.fastForward(currentPlayer);
-                    showOsd(btnFastForward);
+                    if (key === 'ArrowRight' || key === 'Right') {
+                        if (e.repeat || seekRepeatDirection === 1) {
+                            return;
+                        }
+
+                        const initialPosition = getSeekStartPosition(1);
+                        showOsd(btnFastForward);
+                        startSeekRepeat(1, initialPosition);
+                    } else {
+                        playbackManager.fastForward(currentPlayer);
+                        showOsd(btnFastForward);
+                    }
                 }
                 break;
             case 'Comma':
@@ -1337,8 +1349,18 @@ export default function (view) {
             case 'Left':
                 if (!e.shiftKey) {
                     e.preventDefault();
-                    playbackManager.rewind(currentPlayer);
-                    showOsd(btnRewind);
+                    if (key === 'ArrowLeft' || key === 'Left') {
+                        if (e.repeat || seekRepeatDirection === -1) {
+                            return;
+                        }
+
+                        const initialPosition = getSeekStartPosition(-1);
+                        showOsd(btnRewind);
+                        startSeekRepeat(-1, initialPosition);
+                    } else {
+                        playbackManager.rewind(currentPlayer);
+                        showOsd(btnRewind);
+                    }
                 }
                 break;
             case 'KeyF':
@@ -1652,6 +1674,91 @@ export default function (view) {
     const headerElement = document.querySelector('.skinHeader');
     const osdBottomElement = view.querySelector('.videoOsdBottom-maincontrols');
 
+    let seekRepeatPlayer;
+    let seekRepeatDirection = 0;
+    let visibilityChangeEvent;
+    let hiddenProperty;
+    if (typeof document.hidden !== 'undefined') {
+        visibilityChangeEvent = 'visibilitychange';
+        hiddenProperty = 'hidden';
+    } else if (typeof document.webkitHidden !== 'undefined') {
+        visibilityChangeEvent = 'webkitvisibilitychange';
+        hiddenProperty = 'webkitHidden';
+    }
+
+    const seekQueue = createSeekQueue((position) => {
+        const player = seekRepeatPlayer;
+        if (!player || player !== currentPlayer) {
+            return;
+        }
+
+        return playbackManager.seek(position, player);
+    });
+
+    const seekRepeat = createSeekRepeat((direction, position) => {
+        const player = seekRepeatPlayer;
+        if (!player || player !== currentPlayer) {
+            stopSeekRepeat();
+            return;
+        }
+
+        seekQueue.enqueue(position);
+        showOsd(direction < 0 ? btnRewind : btnFastForward);
+    }, TICKS_PER_SECOND);
+
+    function stopSeekRepeat() {
+        seekRepeat.stop();
+        seekQueue.clear();
+        seekRepeatPlayer = null;
+        seekRepeatDirection = 0;
+    }
+
+    function getSeekStartPosition(direction) {
+        if (layoutManager.tv || !currentPlayer) {
+            return null;
+        }
+
+        const currentTicks = playbackManager.getCurrentTicks(currentPlayer);
+        if (!Number.isFinite(currentTicks)) {
+            return null;
+        }
+
+        const skipLength = direction > 0 ?
+            userSettings.skipForwardLength() :
+            userSettings.skipBackLength();
+        return currentTicks + direction * skipLength * TICKS_PER_MILLISECOND;
+    }
+
+    function startSeekRepeat(direction, initialPosition) {
+        if (layoutManager.tv || !currentPlayer || !Number.isFinite(initialPosition)) {
+            stopSeekRepeat();
+            return;
+        }
+
+        stopSeekRepeat();
+        seekRepeatPlayer = currentPlayer;
+        seekRepeatDirection = direction;
+        seekQueue.enqueue(initialPosition);
+        seekRepeat.start(direction, initialPosition);
+    }
+
+    function onKeyUp(e) {
+        const key = keyboardnavigation.getKeyName(e);
+        if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'Left' || key === 'Right') {
+            stopSeekRepeat();
+        }
+    }
+
+    function onWindowBlur() {
+        stopSeekRepeat();
+    }
+
+    function onVisibilityChange() {
+        if (document[hiddenProperty]) {
+            stopSeekRepeat();
+        }
+    }
+
     nowPlayingPositionSlider.enableKeyboardDragging();
     nowPlayingVolumeSlider.enableKeyboardDragging();
 
@@ -1676,6 +1783,11 @@ export default function (view) {
             showOsd();
             inputManager.on(window, onInputCommand);
             document.addEventListener('keydown', onKeyDown);
+            document.addEventListener('keyup', onKeyUp);
+            window.addEventListener('blur', onWindowBlur);
+            if (visibilityChangeEvent) {
+                document.addEventListener(visibilityChangeEvent, onVisibilityChange);
+            }
             dom.addEventListener(document, 'keydown', onKeyDownCapture, {
                 capture: true,
                 passive: true
@@ -1718,7 +1830,13 @@ export default function (view) {
             statsOverlay.enabled(false);
         }
 
+        stopSeekRepeat();
         document.removeEventListener('keydown', onKeyDown);
+        document.removeEventListener('keyup', onKeyUp);
+        window.removeEventListener('blur', onWindowBlur);
+        if (visibilityChangeEvent) {
+            document.removeEventListener(visibilityChangeEvent, onVisibilityChange);
+        }
         dom.removeEventListener(document, 'keydown', onKeyDownCapture, {
             capture: true,
             passive: true
@@ -1777,6 +1895,8 @@ export default function (view) {
         headerElement.classList.remove('hide');
     });
     view.addEventListener('viewdestroy', function () {
+        stopSeekRepeat();
+
         if (self.touchHelper) {
             self.touchHelper.destroy();
             self.touchHelper = null;

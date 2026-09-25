@@ -52,7 +52,7 @@ function sendPlayCommand(apiClient, options, playType) {
 function sendPlayStateCommand(apiClient, command, options) {
     const sessionId = getActivePlayerId();
 
-    apiClient.sendPlayStateCommand(sessionId, command, options);
+    return apiClient.sendPlayStateCommand(sessionId, command, options);
 }
 
 function getCurrentApiClient(instance) {
