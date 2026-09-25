@@ -46,6 +46,8 @@ import Events from '../../utils/events.ts';
 import { includesAny } from '../../utils/container.ts';
 import { isHls } from '../../utils/mediaSource.ts';
 import Artplayer from 'artplayer';
+import { buildDownloadUrl, buildSearchUrl, normalizeApiBase, parseSearchResults } from './onlineSubtitleApi';
+import { parseSrt } from './srt';
 
 const NATIVE_UNSUPPORTED_SUBTITLE_CODECS = ['ssa', 'ass', 'pgssub', 'dvdsub', 'vobsub'];
 const ASS_SUBTITLE_CODECS = ['ssa', 'ass'];
@@ -232,6 +234,15 @@ const VOBSUB_DEBAND_THRESHOLD = 64;
 const VOBSUB_DEBAND_RANGE = 15;
 const SECONDARY_TEXT_TRACK_INDEX = 1;
 
+// Online subtitles are synthesized as fake media streams. They start well above
+// any real stream index because setTrackForDisplay dedupes on track.Index and
+// would silently skip a switch that collides with a real one.
+const ONLINE_SUBTITLE_INDEX_BASE = 9000;
+const ONLINE_SUBTITLE_API_URL_KEY = 'htmlvideoplayer.onlineSubtitleApiUrl';
+const DEFAULT_ONLINE_SUBTITLE_API_URL = 'http://127.0.0.1:4000/';
+const ONLINE_SUBTITLE_SETTING_NAME = 'htmlvideoplayer-subtitles';
+const ONLINE_SUBTITLE_LABEL = '在线字幕';
+
 export class HtmlVideoPlayer {
     /**
      * @type {string}
@@ -403,6 +414,45 @@ export class HtmlVideoPlayer {
      * @type {any | undefined}
      */
     #lastProfile;
+    /**
+     * Online subtitles loaded during this playback, keyed by their synthetic
+     * stream index. They are appended to the media source so the existing
+     * subtitle selection and teardown paths can find them.
+     * @private
+     * @type {Map<number, any>}
+     */
+    #onlineSubtitleStreams = new Map();
+    /**
+     * The 在线字幕 panel. Built lazily on first open and reused afterwards.
+     * @private
+     * @type {HTMLDivElement | null}
+     */
+    #onlineSubtitlePanel = null;
+    /**
+     * @private
+     * @type {HTMLInputElement | null}
+     */
+    #onlineSubtitleApiInput = null;
+    /**
+     * @private
+     * @type {HTMLInputElement | null}
+     */
+    #onlineSubtitleNameInput = null;
+    /**
+     * @private
+     * @type {HTMLButtonElement | null}
+     */
+    #onlineSubtitleSearchButton = null;
+    /**
+     * @private
+     * @type {HTMLElement | null}
+     */
+    #onlineSubtitleStatus = null;
+    /**
+     * @private
+     * @type {HTMLElement | null}
+     */
+    #onlineSubtitleResults = null;
 
     constructor() {
         if (browser.edgeUwp) {
@@ -1588,38 +1638,51 @@ export class HtmlVideoPlayer {
             // Exit if the video element was destroyed while fetching subtitles
             if (!this.#mediaElement) return;
 
-            const subtitleAppearance = userSettings.getSubtitleAppearanceSettings();
-            const subtitleVerticalPosition = parseInt(subtitleAppearance.verticalPosition, 10);
-
-            if (!this.#videoSubtitlesElem && !this.isSecondaryTrack(targetTextTrackIndex)) {
-                let subtitlesContainer = document.querySelector('.videoSubtitles');
-                if (!subtitlesContainer) {
-                    subtitlesContainer = document.createElement('div');
-                    subtitlesContainer.classList.add('videoSubtitles');
-                }
-                const subtitlesElement = document.createElement('div');
-                subtitlesElement.classList.add('videoSubtitlesInner');
-                subtitlesContainer.appendChild(subtitlesElement);
-                this.#videoSubtitlesElem = subtitlesElement;
-                this.setSubtitleAppearance(subtitlesContainer, this.#videoSubtitlesElem);
-                videoElement.parentNode.appendChild(subtitlesContainer);
-                this.#currentTrackEvents = subtitleData.TrackEvents;
-            } else if (!this.#videoSecondarySubtitlesElem && this.isSecondaryTrack(targetTextTrackIndex)) {
-                const subtitlesContainer = document.querySelector('.videoSubtitles');
-                if (!subtitlesContainer) return;
-                const secondarySubtitlesElement = document.createElement('div');
-                secondarySubtitlesElement.classList.add('videoSecondarySubtitlesInner');
-                // determine the order of the subtitles
-                if (subtitleVerticalPosition < 0) {
-                    subtitlesContainer.insertBefore(secondarySubtitlesElement, subtitlesContainer.firstChild);
-                } else {
-                    subtitlesContainer.appendChild(secondarySubtitlesElement);
-                }
-                this.#videoSecondarySubtitlesElem = secondarySubtitlesElement;
-                this.setSubtitleAppearance(subtitlesContainer, this.#videoSecondarySubtitlesElem);
-                this.#currentSecondaryTrackEvents = subtitleData.TrackEvents;
-            }
+            this.#applyTrackEvents(videoElement, subtitleData.TrackEvents, targetTextTrackIndex);
         });
+    }
+
+    /**
+     * Renders already parsed cues into the custom subtitle overlay. Shared by
+     * server delivered tracks and by online subtitles, which never go through
+     * fetchSubtitles because that rewrites the url to a `.js` endpoint.
+     * @param {HTMLVideoElement} videoElement The video element.
+     * @param {Array<any>} trackEvents The cues to render.
+     * @param {number} targetTextTrackIndex Which text track slot to fill.
+     * @private
+     */
+    #applyTrackEvents(videoElement, trackEvents, targetTextTrackIndex) {
+        const subtitleAppearance = userSettings.getSubtitleAppearanceSettings();
+        const subtitleVerticalPosition = parseInt(subtitleAppearance.verticalPosition, 10);
+
+        if (!this.#videoSubtitlesElem && !this.isSecondaryTrack(targetTextTrackIndex)) {
+            let subtitlesContainer = document.querySelector('.videoSubtitles');
+            if (!subtitlesContainer) {
+                subtitlesContainer = document.createElement('div');
+                subtitlesContainer.classList.add('videoSubtitles');
+            }
+            const subtitlesElement = document.createElement('div');
+            subtitlesElement.classList.add('videoSubtitlesInner');
+            subtitlesContainer.appendChild(subtitlesElement);
+            this.#videoSubtitlesElem = subtitlesElement;
+            this.setSubtitleAppearance(subtitlesContainer, this.#videoSubtitlesElem);
+            videoElement.parentNode.appendChild(subtitlesContainer);
+            this.#currentTrackEvents = trackEvents;
+        } else if (!this.#videoSecondarySubtitlesElem && this.isSecondaryTrack(targetTextTrackIndex)) {
+            const subtitlesContainer = document.querySelector('.videoSubtitles');
+            if (!subtitlesContainer) return;
+            const secondarySubtitlesElement = document.createElement('div');
+            secondarySubtitlesElement.classList.add('videoSecondarySubtitlesInner');
+            // determine the order of the subtitles
+            if (subtitleVerticalPosition < 0) {
+                subtitlesContainer.insertBefore(secondarySubtitlesElement, subtitlesContainer.firstChild);
+            } else {
+                subtitlesContainer.appendChild(secondarySubtitlesElement);
+            }
+            this.#videoSecondarySubtitlesElem = secondarySubtitlesElement;
+            this.setSubtitleAppearance(subtitlesContainer, this.#videoSecondarySubtitlesElem);
+            this.#currentSecondaryTrackEvents = trackEvents;
+        }
     }
 
     /**
@@ -1661,6 +1724,14 @@ export class HtmlVideoPlayer {
      * @private
      */
     async renderTracksEvents(videoElement, track, item, targetTextTrackIndex = PRIMARY_TEXT_TRACK_INDEX) {
+        // Online subtitles already carry their parsed cues. Without this branch
+        // they would be treated as external files and fetchSubtitles would
+        // request `<url>.js`, which the subtitle service does not serve.
+        if (track.OnlineTrackEvents) {
+            this.#applyTrackEvents(videoElement, track.OnlineTrackEvents, targetTextTrackIndex);
+            return;
+        }
+
         if (!itemHelper.isLocalItem(item) || track.IsExternal) {
             const format = (track.Codec || '').toLowerCase();
             if (ASS_SUBTITLE_CODECS.includes(format)) {
@@ -1812,6 +1883,14 @@ export class HtmlVideoPlayer {
             sessionPromise = Promise.resolve({});
         }
 
+        // External subtitles are always drawn by the player itself, so they must
+        // not take part in the transcode burn-in bookkeeping below: that branch
+        // flips every DeliveryMethod to Encode and tears the current track down.
+        if (track?.IsOnlineSubtitle) {
+            this.setTrackForDisplay(this.#mediaElement, track, targetTextTrackIndex);
+            return;
+        }
+
         const player = this;
 
         sessionPromise.then((s) => {
@@ -1854,6 +1933,16 @@ export class HtmlVideoPlayer {
         }
 
         document.body.classList.remove('htmlVideoPlayer-artplayer');
+        this.#onlineSubtitleStreams.clear();
+        if (this.#onlineSubtitlePanel) {
+            tryRemoveElement(this.#onlineSubtitlePanel);
+            this.#onlineSubtitlePanel = null;
+        }
+        this.#onlineSubtitleApiInput = null;
+        this.#onlineSubtitleNameInput = null;
+        this.#onlineSubtitleSearchButton = null;
+        this.#onlineSubtitleStatus = null;
+        this.#onlineSubtitleResults = null;
         this.#restoreUpNextOverlay();
     }
 
@@ -2025,6 +2114,7 @@ export class HtmlVideoPlayer {
 
         return {
             width: 220,
+            name: ONLINE_SUBTITLE_SETTING_NAME,
             html: globalize.translate('Subtitles'),
             icon: this.#artIconSvg('<path d="M4 6h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path d="M6 12h5"/><path d="M6 16h8"/>'),
             selector: selector,
@@ -2034,6 +2124,388 @@ export class HtmlVideoPlayer {
                 return item.html;
             }
         };
+    }
+
+    /**
+     * Builds the subtitle selector entries, appending any online subtitles that
+     * were loaded during this playback.
+     * @param {number} selectedIndex The stream index that should be checked, or -1.
+     * @returns {Array<Object>} The artplayer selector entries.
+     * @private
+     */
+    #buildSubtitleSelector(selectedIndex) {
+        const mediaSource = this._currentPlayOptions?.mediaSource;
+
+        const selector = [{
+            html: globalize.translate('Off'),
+            value: '-1',
+            default: selectedIndex === -1
+        }];
+
+        getMediaStreamTextTracks(mediaSource).forEach((stream) => {
+            selector.push({
+                html: DOMPurify.sanitize(stream.DisplayTitle),
+                value: String(stream.Index),
+                default: stream.Index === selectedIndex
+            });
+        });
+
+        return selector;
+    }
+
+    /**
+     * Wraps parsed cues as a fake media stream and appends it to the media
+     * source, so the normal selection, rendering and teardown paths all find it
+     * without special casing.
+     * @param {string} title The subtitle name shown in the menu.
+     * @param {string} downloadUrl Where the cues came from, kept for debugging.
+     * @param {Array<any>} trackEvents The parsed cues.
+     * @returns {Object} The synthesized media stream.
+     * @private
+     */
+    #createOnlineSubtitleStream(title, downloadUrl, trackEvents) {
+        const stream = {
+            Type: 'Subtitle',
+            Codec: 'subrip',
+            Index: ONLINE_SUBTITLE_INDEX_BASE + this.#onlineSubtitleStreams.size,
+            DisplayTitle: ONLINE_SUBTITLE_LABEL + ': ' + title,
+            IsExternal: true,
+            IsExternalUrl: true,
+            DeliveryUrl: downloadUrl,
+            // Jellyfin's own schema has no such fields; they are plugin private.
+            IsOnlineSubtitle: true,
+            OnlineTrackEvents: trackEvents
+        };
+
+        this.#onlineSubtitleStreams.set(stream.Index, stream);
+        this._currentPlayOptions.mediaSource.MediaStreams.push(stream);
+
+        return stream;
+    }
+
+    /**
+     * Rebuilds the subtitle row so freshly loaded online subtitles show up and
+     * the right entry is checked. artplayer only refreshes this on user clicks,
+     * so the tooltip has to be written by hand as well.
+     * @param {number} selectedIndex The stream index that should be checked, or -1.
+     * @returns {void}
+     * @private
+     */
+    #syncSubtitleSetting(selectedIndex) {
+        const art = this.#artPlayer;
+        if (!art) {
+            return;
+        }
+
+        const setting = art.setting.find(ONLINE_SUBTITLE_SETTING_NAME);
+        if (!setting) {
+            return;
+        }
+
+        const selector = this.#buildSubtitleSelector(selectedIndex);
+        const selected = selector.find((option) => option.default);
+        setting.tooltip = selected ? selected.html : '';
+
+        art.setting.update({
+            width: 220,
+            name: ONLINE_SUBTITLE_SETTING_NAME,
+            html: globalize.translate('Subtitles'),
+            icon: this.#artIconSvg('<path d="M4 6h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path d="M6 12h5"/><path d="M6 16h8"/>'),
+            selector: selector,
+            onSelect: (item) => {
+                playbackManager.setSubtitleStreamIndex(parseInt(item.value, 10), this);
+
+                return item.html;
+            }
+        });
+    }
+
+    /**
+     * Activates a loaded online subtitle and refreshes the subtitle menu.
+     * @param {Object} stream The synthesized media stream.
+     * @returns {void}
+     * @private
+     */
+    #selectOnlineSubtitleStream(stream) {
+        this.#syncSubtitleSetting(stream.Index);
+        playbackManager.setSubtitleStreamIndex(stream.Index, this);
+    }
+
+    /**
+     * Builds the 在线字幕 entry for the artplayer settings menu. Having an
+     * onClick makes artplayer treat it as a button row rather than a selector.
+     * @private
+     */
+    #buildOnlineSubtitleSetting() {
+        return {
+            width: 300,
+            html: ONLINE_SUBTITLE_LABEL,
+            icon: this.#artIconSvg('<path d="M17.5 19a4.5 4.5 0 0 0 .5-8.97A6 6 0 0 0 6.4 9.03 4 4 0 0 0 7 19h10.5z"/><path d="M10 13.5a2 2 0 0 0 4 0"/><path d="M10 16.5a2 2 0 0 0 4 0"/>'),
+            onClick: () => {
+                this.#toggleOnlineSubtitlePanel();
+
+                return '';
+            }
+        };
+    }
+
+    /**
+     * Shows or hides the 在线字幕 panel. The panel lives outside `.art-settings`
+     * so it is not torn down by artplayer's own show/hide handling, which means
+     * the settings menu has to be collapsed explicitly to avoid overlap.
+     * @private
+     */
+    #toggleOnlineSubtitlePanel() {
+        const art = this.#artPlayer;
+        if (!art) {
+            return;
+        }
+
+        this.#createOnlineSubtitlePanel();
+        const player = art.template.$player;
+        const show = !player.classList.contains('htmlvideoplayer-online-subtitle-show');
+        if (show) {
+            art.setting.show = false;
+        }
+
+        player.classList.toggle('htmlvideoplayer-online-subtitle-show', show);
+        if (show) {
+            this.#onlineSubtitleApiInput.focus();
+        }
+    }
+
+    /**
+     * Builds the panel on first use. Every interactive child stops propagation
+     * because artplayer collapses its own menus on focus/blur, which would make
+     * the inputs unusable.
+     * @returns {HTMLDivElement} The panel element.
+     * @private
+     */
+    #createOnlineSubtitlePanel() {
+        if (this.#onlineSubtitlePanel) {
+            return this.#onlineSubtitlePanel;
+        }
+
+        const art = this.#artPlayer;
+        const player = art.template.$player;
+
+        const panel = document.createElement('div');
+        panel.classList.add('htmlvideoplayer-online-subtitle');
+        ['click', 'wheel', 'keydown', 'mousedown'].forEach((type) => {
+            panel.addEventListener(type, (event) => event.stopPropagation());
+        });
+
+        const apiField = document.createElement('label');
+        apiField.classList.add('htmlvideoplayer-online-subtitle-field');
+        const apiLabel = document.createElement('span');
+        apiLabel.classList.add('htmlvideoplayer-online-subtitle-label');
+        apiLabel.textContent = 'API 地址';
+        const apiInput = document.createElement('input');
+        apiInput.type = 'text';
+        apiInput.spellcheck = false;
+        apiInput.value = this.#getStoredOnlineSubtitleApiUrl();
+        apiInput.addEventListener('change', () => {
+            try {
+                localStorage.setItem(ONLINE_SUBTITLE_API_URL_KEY, apiInput.value.trim());
+            } catch (err) {
+                console.warn('[htmlVideoPlayer] could not persist the online subtitle api url', err);
+            }
+        });
+        apiField.appendChild(apiLabel);
+        apiField.appendChild(apiInput);
+        panel.appendChild(apiField);
+
+        const nameField = document.createElement('label');
+        nameField.classList.add('htmlvideoplayer-online-subtitle-field');
+        const nameLabel = document.createElement('span');
+        nameLabel.classList.add('htmlvideoplayer-online-subtitle-label');
+        nameLabel.textContent = '字幕名称';
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.value = this._currentPlayOptions?.item?.Name || '';
+        nameField.appendChild(nameLabel);
+        nameField.appendChild(nameInput);
+        panel.appendChild(nameField);
+
+        const actions = document.createElement('div');
+        actions.classList.add('htmlvideoplayer-online-subtitle-actions');
+        const searchButton = document.createElement('button');
+        searchButton.type = 'button';
+        searchButton.textContent = '搜索';
+        searchButton.addEventListener('click', () => {
+            this.#searchOnlineSubtitles();
+        });
+        const status = document.createElement('span');
+        status.classList.add('htmlvideoplayer-online-subtitle-status');
+        actions.appendChild(searchButton);
+        actions.appendChild(status);
+        panel.appendChild(actions);
+
+        const results = document.createElement('div');
+        results.classList.add('htmlvideoplayer-online-subtitle-results');
+        panel.appendChild(results);
+
+        player.appendChild(panel);
+
+        this.#onlineSubtitlePanel = panel;
+        this.#onlineSubtitleApiInput = apiInput;
+        this.#onlineSubtitleNameInput = nameInput;
+        this.#onlineSubtitleSearchButton = searchButton;
+        this.#onlineSubtitleStatus = status;
+        this.#onlineSubtitleResults = results;
+
+        return panel;
+    }
+
+    /**
+     * @private
+     * @returns {string} The subtitle API base url to start from.
+     */
+    #getStoredOnlineSubtitleApiUrl() {
+        try {
+            return localStorage.getItem(ONLINE_SUBTITLE_API_URL_KEY) || DEFAULT_ONLINE_SUBTITLE_API_URL;
+        } catch {
+            return DEFAULT_ONLINE_SUBTITLE_API_URL;
+        }
+    }
+
+    /**
+     * Queries the subtitle service and renders the result list.
+     * @returns {Promise<void>}
+     * @private
+     */
+    async #searchOnlineSubtitles() {
+        const apiUrl = normalizeApiBase(this.#onlineSubtitleApiInput?.value);
+        const query = this.#onlineSubtitleNameInput?.value.trim();
+        if (!apiUrl || !query) {
+            this.#setOnlineSubtitleStatus('请填写 API 地址和字幕名称');
+            return;
+        }
+
+        this.#onlineSubtitleSearchButton.disabled = true;
+        this.#setOnlineSubtitleStatus('搜索中…');
+        this.#onlineSubtitleResults.innerHTML = '';
+
+        this.incrementFetchQueue();
+        try {
+            const response = await fetch(buildSearchUrl(apiUrl, query));
+            if (!response.ok) {
+                throw new Error('搜索失败 (HTTP ' + response.status + ')');
+            }
+
+            const results = parseSearchResults(await response.json());
+            this.#renderOnlineSubtitleResults(results, apiUrl);
+        } catch (err) {
+            this.#setOnlineSubtitleStatus(this.#describeOnlineSubtitleError(err));
+        } finally {
+            this.decrementFetchQueue();
+            this.#onlineSubtitleSearchButton.disabled = false;
+        }
+    }
+
+    /**
+     * Renders one clickable row per search hit.
+     * @param {Array<Object>} results The mapped search results.
+     * @param {string} apiUrl The API base the results came from.
+     * @returns {void}
+     * @private
+     */
+    #renderOnlineSubtitleResults(results, apiUrl) {
+        const container = this.#onlineSubtitleResults;
+        if (!results.length) {
+            this.#setOnlineSubtitleStatus('没有找到匹配的字幕');
+            return;
+        }
+
+        this.#setOnlineSubtitleStatus('共 ' + results.length + ' 条');
+
+        results.forEach((result) => {
+            const row = document.createElement('button');
+            row.type = 'button';
+            row.classList.add('htmlvideoplayer-online-subtitle-result');
+
+            const title = document.createElement('span');
+            title.classList.add('htmlvideoplayer-online-subtitle-result-title');
+            title.innerHTML = DOMPurify.sanitize(result.title);
+            row.appendChild(title);
+
+            const details = [result.language, result.version].filter(Boolean).join(' · ');
+            if (details) {
+                const meta = document.createElement('span');
+                meta.classList.add('htmlvideoplayer-online-subtitle-result-meta');
+                meta.innerHTML = DOMPurify.sanitize(details);
+                row.appendChild(meta);
+            }
+
+            row.addEventListener('click', () => {
+                this.#downloadOnlineSubtitle(result, apiUrl);
+            });
+            container.appendChild(row);
+        });
+    }
+
+    /**
+     * Downloads one result, parses it and switches to it.
+     * @param {Object} result The search result to load.
+     * @param {string} apiUrl The API base the result came from.
+     * @returns {Promise<void>}
+     * @private
+     */
+    async #downloadOnlineSubtitle(result, apiUrl) {
+        this.#setOnlineSubtitleStatus('下载中…');
+
+        const downloadUrl = buildDownloadUrl(apiUrl, result.id);
+        this.incrementFetchQueue();
+        try {
+            const response = await fetch(downloadUrl);
+            if (!response.ok) {
+                throw new Error('下载失败 (HTTP ' + response.status + ')');
+            }
+
+            const trackEvents = parseSrt(await response.text());
+            if (!trackEvents.length) {
+                throw new Error('字幕文件解析失败，可能不是有效的 SRT');
+            }
+
+            // The player may have been torn down while the download was running.
+            if (!this.#mediaElement) {
+                return;
+            }
+
+            const stream = this.#createOnlineSubtitleStream(result.title, downloadUrl, trackEvents);
+            this.#selectOnlineSubtitleStream(stream);
+            this.#toggleOnlineSubtitlePanel();
+        } catch (err) {
+            this.#setOnlineSubtitleStatus(this.#describeOnlineSubtitleError(err));
+        } finally {
+            this.decrementFetchQueue();
+        }
+    }
+
+    /**
+     * @param {string} text The message to show next to the search button.
+     * @returns {void}
+     * @private
+     */
+    #setOnlineSubtitleStatus(text) {
+        if (this.#onlineSubtitleStatus) {
+            this.#onlineSubtitleStatus.textContent = text;
+        }
+    }
+
+    /**
+     * Turns a fetch failure into something actionable. The subtitle service
+     * lives on another origin, so a bare network error is nearly always CORS.
+     * @param {any} err The caught error.
+     * @returns {string} The message to show.
+     * @private
+     */
+    #describeOnlineSubtitleError(err) {
+        const message = err instanceof Error && err.message ? err.message : String(err);
+        if (err instanceof TypeError) {
+            return message + '（若字幕服务未返回 Access-Control-Allow-Origin，浏览器会拦截跨域请求）';
+        }
+        return message;
     }
 
     /**
@@ -2515,6 +2987,7 @@ export class HtmlVideoPlayer {
                     this.#buildQualitySetting(options),
                     this.#buildAudioSetting(options),
                     this.#buildSubtitleSetting(options),
+                    this.#buildOnlineSubtitleSetting(),
                     this.#buildSubtitleOffsetSetting(),
                     this.#buildSubtitleFontSizeSetting(),
                     this.#buildSubtitleVerticalPositionSetting()

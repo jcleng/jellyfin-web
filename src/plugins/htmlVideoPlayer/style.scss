@@ -144,6 +144,135 @@ video[controls]::-webkit-media-controls {
     margin-bottom: 0.5em !important;
 }
 
+/* 在线字幕面板。挂在 .art-video-player 上、和 .art-settings 同级，
+   所以自己管显隐；z-index 比 .art-settings 的 90 高一层。
+   下面的子元素都带上面板根类名，既限定作用域，也让特异性不低于
+   .art-setting-item-offset 的按钮样式（stylelint no-descending-specificity）。 */
+.art-video-player .htmlvideoplayer-online-subtitle {
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+    position: absolute;
+    right: var(--art-padding, 10px);
+    bottom: var(--art-control-height, 46px);
+    z-index: 91;
+    width: 300px;
+    max-width: calc(100% - var(--art-padding, 10px) * 2);
+    padding: 10px;
+    border-radius: var(--art-border-radius, 3px);
+    font-size: 12px;
+    background-color: var(--art-widget-background, rgba(0, 0, 0, 0.85));
+}
+
+.art-video-player.htmlvideoplayer-online-subtitle-show .htmlvideoplayer-online-subtitle {
+    display: flex;
+}
+
+.art-video-player .htmlvideoplayer-online-subtitle .htmlvideoplayer-online-subtitle-field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.art-video-player .htmlvideoplayer-online-subtitle .htmlvideoplayer-online-subtitle-label {
+    flex-shrink: 0;
+    width: 60px;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+/* .art-video-player 整棵树是 user-select: none，不覆盖的话输入框里选不中文字 */
+.art-video-player .htmlvideoplayer-online-subtitle .htmlvideoplayer-online-subtitle-field input {
+    flex: 1;
+    min-width: 0;
+    height: 24px;
+    padding: 0 6px;
+    border: 0;
+    border-radius: var(--art-border-radius, 3px);
+    color: var(--art-font-color, #fff);
+    background: rgba(255, 255, 255, 0.15);
+    font-size: 12px;
+    outline: none;
+    user-select: text;
+}
+
+.art-video-player .htmlvideoplayer-online-subtitle .htmlvideoplayer-online-subtitle-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.art-video-player .htmlvideoplayer-online-subtitle .htmlvideoplayer-online-subtitle-actions button {
+    flex-shrink: 0;
+    height: 24px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: var(--art-border-radius, 3px);
+    color: var(--art-font-color, #fff);
+    background: var(--art-theme, #00a4dc);
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.art-video-player .htmlvideoplayer-online-subtitle .htmlvideoplayer-online-subtitle-actions button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.art-video-player .htmlvideoplayer-online-subtitle .htmlvideoplayer-online-subtitle-status {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.art-video-player .htmlvideoplayer-online-subtitle .htmlvideoplayer-online-subtitle-results {
+    display: flex;
+    flex-direction: column;
+    max-height: 200px;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.art-video-player .htmlvideoplayer-online-subtitle .htmlvideoplayer-online-subtitle-result {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    padding: 6px 4px;
+    border: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--art-font-color, #fff);
+    background: none;
+    cursor: pointer;
+    text-align: left;
+    text-shadow: none;
+}
+
+.art-video-player .htmlvideoplayer-online-subtitle .htmlvideoplayer-online-subtitle-result:last-child {
+    border-bottom: none;
+}
+
+.art-video-player .htmlvideoplayer-online-subtitle .htmlvideoplayer-online-subtitle-result:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.art-video-player .htmlvideoplayer-online-subtitle .htmlvideoplayer-online-subtitle-result-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+}
+
+.art-video-player .htmlvideoplayer-online-subtitle .htmlvideoplayer-online-subtitle-result-meta {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 11px;
+}
+
 @keyframes htmlvideoplayer-zoomin {
     from {
         transform: scale3d(0.2, 0.2, 0.2);
