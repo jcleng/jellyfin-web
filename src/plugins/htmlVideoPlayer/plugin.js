@@ -2492,6 +2492,7 @@ export class HtmlVideoPlayer {
                 autoMini: false,
                 screenshot: false,
                 setting: true,
+                hotkey: false,
                 settings: [
                     this.#buildQualitySetting(options),
                     this.#buildAudioSetting(options),
@@ -2550,6 +2551,10 @@ export class HtmlVideoPlayer {
             art = null;
             return this.#wireVideoElement(nativeVideo, options, playerDlg, null);
         }
+
+        art.proxy(art.template.$setting, 'wheel', (event) => {
+            event.stopPropagation();
+        }, { passive: true });
 
         this.#enableTrickplayPreview(art, options);
 
