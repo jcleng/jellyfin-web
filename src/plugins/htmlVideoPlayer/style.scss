@@ -315,6 +315,37 @@ video[controls]::-webkit-media-controls {
     font-size: 11px;
 }
 
+.art-video-player .htmlvideoplayer-online-subtitle .htmlvideoplayer-online-subtitle-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.art-video-player .htmlvideoplayer-online-subtitle .htmlvideoplayer-online-subtitle-page-button {
+    flex-shrink: 0;
+    height: 24px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: var(--art-border-radius, 3px);
+    color: var(--art-font-color, #fff);
+    background: rgba(255, 255, 255, 0.15);
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.art-video-player .htmlvideoplayer-online-subtitle .htmlvideoplayer-online-subtitle-page-button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.art-video-player .htmlvideoplayer-online-subtitle .htmlvideoplayer-online-subtitle-page-info {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: rgba(255, 255, 255, 0.7);
+}
+
 @keyframes htmlvideoplayer-zoomin {
     from {
         transform: scale3d(0.2, 0.2, 0.2);

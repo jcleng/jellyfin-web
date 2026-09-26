@@ -243,6 +243,8 @@ const ONLINE_SUBTITLE_API_URL_KEY = 'htmlvideoplayer.onlineSubtitleApiUrl';
 const DEFAULT_ONLINE_SUBTITLE_API_URL = 'https://srt.j-c-leng.workers.dev/';// online url
 const ONLINE_SUBTITLE_SETTING_NAME = 'htmlvideoplayer-subtitles';
 const ONLINE_SUBTITLE_LABEL = '在线字幕';
+// The service rejects a page outside 1-100.
+const ONLINE_SUBTITLE_MAX_PAGE = 100;
 
 export class HtmlVideoPlayer {
     /**
@@ -461,6 +463,28 @@ export class HtmlVideoPlayer {
      * @type {HTMLElement | null}
      */
     #onlineSubtitleResults = null;
+    /**
+     * @private
+     * @type {HTMLButtonElement | null}
+     */
+    #onlineSubtitlePrevButton = null;
+    /**
+     * @private
+     * @type {HTMLButtonElement | null}
+     */
+    #onlineSubtitleNextButton = null;
+    /**
+     * @private
+     * @type {HTMLElement | null}
+     */
+    #onlineSubtitlePageInfo = null;
+    /**
+     * The page the currently listed results came from. The service returns a
+     * bare array, so an empty page is the only end-of-list signal there is.
+     * @private
+     * @type {number}
+     */
+    #onlineSubtitlePage = 1;
 
     constructor() {
         if (browser.edgeUwp) {
@@ -1963,6 +1987,10 @@ export class HtmlVideoPlayer {
         this.#onlineSubtitleSearchButton = null;
         this.#onlineSubtitleStatus = null;
         this.#onlineSubtitleResults = null;
+        this.#onlineSubtitlePrevButton = null;
+        this.#onlineSubtitleNextButton = null;
+        this.#onlineSubtitlePageInfo = null;
+        this.#onlineSubtitlePage = 1;
         this.#restoreUpNextOverlay();
     }
 
@@ -2438,6 +2466,32 @@ export class HtmlVideoPlayer {
         results.classList.add('htmlvideoplayer-online-subtitle-results');
         panel.appendChild(results);
 
+        const pagination = document.createElement('div');
+        pagination.classList.add('htmlvideoplayer-online-subtitle-pagination');
+        const prevButton = document.createElement('button');
+        prevButton.type = 'button';
+        prevButton.classList.add('htmlvideoplayer-online-subtitle-page-button');
+        prevButton.textContent = '上一页';
+        prevButton.disabled = true;
+        prevButton.addEventListener('click', () => {
+            this.#searchOnlineSubtitles(this.#onlineSubtitlePage - 1);
+        });
+        const pageInfo = document.createElement('span');
+        pageInfo.classList.add('htmlvideoplayer-online-subtitle-page-info');
+        pageInfo.textContent = '第 1 页';
+        const nextButton = document.createElement('button');
+        nextButton.type = 'button';
+        nextButton.classList.add('htmlvideoplayer-online-subtitle-page-button');
+        nextButton.textContent = '下一页';
+        nextButton.disabled = true;
+        nextButton.addEventListener('click', () => {
+            this.#searchOnlineSubtitles(this.#onlineSubtitlePage + 1);
+        });
+        pagination.appendChild(prevButton);
+        pagination.appendChild(pageInfo);
+        pagination.appendChild(nextButton);
+        panel.appendChild(pagination);
+
         player.appendChild(panel);
 
         this.#onlineSubtitlePanel = panel;
@@ -2446,6 +2500,9 @@ export class HtmlVideoPlayer {
         this.#onlineSubtitleSearchButton = searchButton;
         this.#onlineSubtitleStatus = status;
         this.#onlineSubtitleResults = results;
+        this.#onlineSubtitlePrevButton = prevButton;
+        this.#onlineSubtitleNextButton = nextButton;
+        this.#onlineSubtitlePageInfo = pageInfo;
 
         return panel;
     }
@@ -2463,11 +2520,14 @@ export class HtmlVideoPlayer {
     }
 
     /**
-     * Queries the subtitle service and renders the result list.
+     * Queries the subtitle service and renders the result list. The search
+     * button restarts at the first page, the pagination buttons pass the
+     * adjacent page instead.
+     * @param {number} [page] The 1 based page to request.
      * @returns {Promise<void>}
      * @private
      */
-    async #searchOnlineSubtitles() {
+    async #searchOnlineSubtitles(page = 1) {
         const apiUrl = normalizeApiBase(this.#onlineSubtitleApiInput?.value);
         const query = this.#onlineSubtitleNameInput?.value.trim();
         if (!apiUrl || !query) {
@@ -2475,13 +2535,17 @@ export class HtmlVideoPlayer {
             return;
         }
 
+        const targetPage = Math.min(Math.max(1, Math.floor(page) || 1), ONLINE_SUBTITLE_MAX_PAGE);
+        this.#onlineSubtitlePage = targetPage;
+
         this.#onlineSubtitleSearchButton.disabled = true;
+        this.#setOnlineSubtitlePaginationState(true);
         this.#setOnlineSubtitleStatus('搜索中…');
         this.#onlineSubtitleResults.innerHTML = '';
 
         this.incrementFetchQueue();
         try {
-            const response = await fetch(buildSearchUrl(apiUrl, query));
+            const response = await fetch(buildSearchUrl(apiUrl, query, targetPage));
             if (!response.ok) {
                 throw new Error('搜索失败 (HTTP ' + response.status + ')');
             }
@@ -2490,6 +2554,7 @@ export class HtmlVideoPlayer {
             this.#renderOnlineSubtitleResults(results, apiUrl);
         } catch (err) {
             this.#setOnlineSubtitleStatus(this.#describeOnlineSubtitleError(err));
+            this.#setOnlineSubtitlePaginationState(false);
         } finally {
             this.decrementFetchQueue();
             this.#onlineSubtitleSearchButton.disabled = false;
@@ -2497,7 +2562,6 @@ export class HtmlVideoPlayer {
     }
 
     /**
-     * Renders one clickable row per search hit.
      * @param {Array<Object>} results The mapped search results.
      * @param {string} apiUrl The API base the results came from.
      * @returns {void}
@@ -2507,6 +2571,7 @@ export class HtmlVideoPlayer {
         const container = this.#onlineSubtitleResults;
         if (!results.length) {
             this.#setOnlineSubtitleStatus('没有找到匹配的字幕');
+            this.#setOnlineSubtitlePaginationState(false);
             return;
         }
 
@@ -2535,6 +2600,39 @@ export class HtmlVideoPlayer {
             });
             container.appendChild(row);
         });
+
+        this.#setOnlineSubtitlePaginationState(false);
+    }
+
+    /**
+     * Shows the current page and enables the neighbouring page buttons. An
+     * empty page is the only end of list signal the service gives us, so it
+     * turns 下一页 off as well.
+     * @param {boolean} busy Whether a search is in flight.
+     * @returns {void}
+     * @private
+     */
+    #setOnlineSubtitlePaginationState(busy) {
+        const page = this.#onlineSubtitlePage;
+        if (this.#onlineSubtitlePageInfo) {
+            this.#onlineSubtitlePageInfo.textContent = '第 ' + page + ' 页';
+        }
+
+        if (this.#onlineSubtitlePrevButton) {
+            this.#onlineSubtitlePrevButton.disabled = busy || page <= 1;
+        }
+
+        if (this.#onlineSubtitleNextButton) {
+            this.#onlineSubtitleNextButton.disabled = busy || !this.#onlineSubtitleHasResults() || page >= ONLINE_SUBTITLE_MAX_PAGE;
+        }
+    }
+
+    /**
+     * @returns {boolean} Whether the panel currently lists at least one result.
+     * @private
+     */
+    #onlineSubtitleHasResults() {
+        return Boolean(this.#onlineSubtitleResults?.firstElementChild);
     }
 
     /**

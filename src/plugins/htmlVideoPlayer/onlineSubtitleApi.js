@@ -18,10 +18,15 @@ export function normalizeApiBase(url) {
 /**
  * @param {string} apiBase The subtitle API base url.
  * @param {string} query The search keyword.
+ * @param {number} [page] The 1 based page to request. The first page is the
+ *     default on the service, so the parameter is omitted for it.
  * @returns {string} The search url.
  */
-export function buildSearchUrl(apiBase, query) {
-    return normalizeApiBase(apiBase) + '/search?q=' + encodeURIComponent(String(query || '').trim());
+export function buildSearchUrl(apiBase, query, page) {
+    const url = normalizeApiBase(apiBase) + '/search?q=' + encodeURIComponent(String(query || '').trim());
+    const pageNumber = Number(page);
+
+    return Number.isSafeInteger(pageNumber) && pageNumber > 1 ? url + '&page=' + pageNumber : url;
 }
 
 /**

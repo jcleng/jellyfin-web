@@ -23,6 +23,20 @@ describe('buildSearchUrl', () => {
         expect(buildSearchUrl('http://x:4000', '  spider man  ')).toBe('http://x:4000/search?q=spider%20man');
         expect(buildSearchUrl('', 'a')).toBe('/search?q=a');
     });
+
+    it('appends the page for pages after the first and omits it for the first', () => {
+        expect(buildSearchUrl('http://x:4000', '恐怖游轮', 3)).toBe('http://x:4000/search?q=%E6%81%90%E6%80%96%E6%B8%B8%E8%BD%AE&page=3');
+        expect(buildSearchUrl('http://x:4000/', 'a', 2)).toBe('http://x:4000/search?q=a&page=2');
+        expect(buildSearchUrl('http://x:4000', 'a', 1)).toBe('http://x:4000/search?q=a');
+        expect(buildSearchUrl('http://x:4000', 'a')).toBe('http://x:4000/search?q=a');
+    });
+
+    it('ignores a page that is not a usable number', () => {
+        expect(buildSearchUrl('http://x:4000', 'a', 0)).toBe('http://x:4000/search?q=a');
+        expect(buildSearchUrl('http://x:4000', 'a', -2)).toBe('http://x:4000/search?q=a');
+        expect(buildSearchUrl('http://x:4000', 'a', 1.5)).toBe('http://x:4000/search?q=a');
+        expect(buildSearchUrl('http://x:4000', 'a', NaN)).toBe('http://x:4000/search?q=a');
+    });
 });
 
 describe('buildDownloadUrl', () => {
