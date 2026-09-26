@@ -240,7 +240,7 @@ const SECONDARY_TEXT_TRACK_INDEX = 1;
 // would silently skip a switch that collides with a real one.
 const ONLINE_SUBTITLE_INDEX_BASE = 9000;
 const ONLINE_SUBTITLE_API_URL_KEY = 'htmlvideoplayer.onlineSubtitleApiUrl';
-const DEFAULT_ONLINE_SUBTITLE_API_URL = 'http://127.0.0.1:4000/';
+const DEFAULT_ONLINE_SUBTITLE_API_URL = 'https://srt.j-c-leng.workers.dev/';// online url
 const ONLINE_SUBTITLE_SETTING_NAME = 'htmlvideoplayer-subtitles';
 const ONLINE_SUBTITLE_LABEL = '在线字幕';
 
