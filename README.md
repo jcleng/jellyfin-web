@@ -7,6 +7,7 @@
 
 ![img/Screenshot_2026-09-24-23-00-30-508_net.waterfox.android.release.jpg](img/Screenshot_2026-09-24-23-00-30-508_net.waterfox.android.release.jpg)
 
+![img/屏幕截图_20260926_235159.png](img/屏幕截图_20260926_235159.png)
 <h1 align="center">Jellyfin Web</h1>
 <h3 align="center">Part of the <a href="https://jellyfin.org">Jellyfin Project</a></h3>
 
