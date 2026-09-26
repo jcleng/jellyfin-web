@@ -47,6 +47,7 @@ import { includesAny } from '../../utils/container.ts';
 import { isHls } from '../../utils/mediaSource.ts';
 import Artplayer from 'artplayer';
 import { buildDownloadUrl, buildSearchUrl, normalizeApiBase, parseSearchResults } from './onlineSubtitleApi';
+import { readSavedOnlineSubtitles, saveOnlineSubtitle } from './onlineSubtitleStore';
 import { parseSrt } from './srt';
 
 const NATIVE_UNSUPPORTED_SUBTITLE_CODECS = ['ssa', 'ass', 'pgssub', 'dvdsub', 'vobsub'];
@@ -423,6 +424,13 @@ export class HtmlVideoPlayer {
      */
     #onlineSubtitleStreams = new Map();
     /**
+     * Index of the online subtitle restored from localStorage that should be
+     * activated once playback starts, or -1 when there is none.
+     * @private
+     * @type {number}
+     */
+    #onlineSubtitleIndexToSetOnPlaying = -1;
+    /**
      * The 在线字幕 panel. Built lazily on first open and reused afterwards.
      * @private
      * @type {HTMLDivElement | null}
@@ -595,6 +603,10 @@ export class HtmlVideoPlayer {
                 .catch((error) => console.warn('[libbitsub] worker prewarm failed; renderer fallback will be used', error));
         }
 
+        // Must happen before the artplayer settings are built: the subtitle menu
+        // is rendered from the media source once and never re-read.
+        this.#restoreOnlineSubtitles(options.mediaSource);
+
         const elem = await this.createMediaElement(options);
         this.#applyAspectRatio(options.aspectRatio || this.getAspectRatio());
 
@@ -748,6 +760,9 @@ export class HtmlVideoPlayer {
     }
 
     setSubtitleStreamIndex(index) {
+        // Selecting an online subtitle is the signal to remember it for the next
+        // playback, whether it came from the search panel or the subtitle menu.
+        this.#rememberOnlineSubtitle(index);
         this.setCurrentTrackElement(index);
     }
 
@@ -1161,8 +1176,12 @@ export class HtmlVideoPlayer {
      * @private
      */
     onStartedAndNavigatedToOsd() {
+        // A restored online subtitle wins over the server side default index.
         // If this causes a failure during navigation we end up in an awkward UI state
-        this.setCurrentTrackElement(this.#subtitleTrackIndexToSetOnPlaying);
+        const subtitleIndex = this.#onlineSubtitleIndexToSetOnPlaying >= 0 ?
+            this.#onlineSubtitleIndexToSetOnPlaying :
+            this.#subtitleTrackIndexToSetOnPlaying;
+        this.setCurrentTrackElement(subtitleIndex);
 
         if (this.#audioTrackIndexToSetOnPlaying != null && this.canSetAudioStreamIndex()) {
             this.setAudioStreamIndex(this.#audioTrackIndexToSetOnPlaying);
@@ -1934,6 +1953,7 @@ export class HtmlVideoPlayer {
 
         document.body.classList.remove('htmlVideoPlayer-artplayer');
         this.#onlineSubtitleStreams.clear();
+        this.#onlineSubtitleIndexToSetOnPlaying = -1;
         if (this.#onlineSubtitlePanel) {
             tryRemoveElement(this.#onlineSubtitlePanel);
             this.#onlineSubtitlePanel = null;
@@ -2095,7 +2115,12 @@ export class HtmlVideoPlayer {
      */
     #buildSubtitleSetting(options) {
         const mediaSource = options.mediaSource;
-        const currentIndex = mediaSource.DefaultSubtitleStreamIndex == null ? -1 : mediaSource.DefaultSubtitleStreamIndex;
+        const defaultIndex = mediaSource.DefaultSubtitleStreamIndex == null ? -1 : mediaSource.DefaultSubtitleStreamIndex;
+        // A restored online subtitle is preselected instead of the server side
+        // default, otherwise the menu would not match what actually gets shown.
+        const currentIndex = this.#onlineSubtitleIndexToSetOnPlaying >= 0 ?
+            this.#onlineSubtitleIndexToSetOnPlaying :
+            defaultIndex;
 
         const streams = getMediaStreamTextTracks(mediaSource);
         const selector = [{
@@ -2157,30 +2182,80 @@ export class HtmlVideoPlayer {
      * Wraps parsed cues as a fake media stream and appends it to the media
      * source, so the normal selection, rendering and teardown paths all find it
      * without special casing.
-     * @param {string} title The subtitle name shown in the menu.
-     * @param {string} downloadUrl Where the cues came from, kept for debugging.
+     * @param {Object} mediaSource The media source the stream is appended to.
+     * @param {{apiBase: string, id: string, title: string}} record Where the subtitle came from.
      * @param {Array<any>} trackEvents The parsed cues.
      * @returns {Object} The synthesized media stream.
      * @private
      */
-    #createOnlineSubtitleStream(title, downloadUrl, trackEvents) {
+    #createOnlineSubtitleStream(mediaSource, record, trackEvents) {
         const stream = {
             Type: 'Subtitle',
             Codec: 'subrip',
             Index: ONLINE_SUBTITLE_INDEX_BASE + this.#onlineSubtitleStreams.size,
-            DisplayTitle: ONLINE_SUBTITLE_LABEL + ': ' + title,
+            DisplayTitle: ONLINE_SUBTITLE_LABEL + ': ' + record.title,
             IsExternal: true,
             IsExternalUrl: true,
-            DeliveryUrl: downloadUrl,
+            DeliveryUrl: buildDownloadUrl(record.apiBase, record.id),
             // Jellyfin's own schema has no such fields; they are plugin private.
             IsOnlineSubtitle: true,
+            OnlineApiBase: record.apiBase,
+            OnlineId: record.id,
+            OnlineTitle: record.title,
             OnlineTrackEvents: trackEvents
         };
 
         this.#onlineSubtitleStreams.set(stream.Index, stream);
-        this._currentPlayOptions.mediaSource.MediaStreams.push(stream);
+        mediaSource.MediaStreams.push(stream);
 
         return stream;
+    }
+
+    /**
+     * Re-attaches the online subtitles that were selected in earlier playbacks,
+     * so they show up in the subtitle menu and the newest one is preselected.
+     * Has to run before the artplayer settings are built, because that menu is
+     * rendered from the media source once and never re-read.
+     * @param {Object} mediaSource The media source of the item that is starting.
+     * @returns {void}
+     * @private
+     */
+    #restoreOnlineSubtitles(mediaSource) {
+        this.#onlineSubtitleStreams.clear();
+        this.#onlineSubtitleIndexToSetOnPlaying = -1;
+
+        if (!mediaSource?.MediaStreams) {
+            return;
+        }
+
+        // Saved newest first, so the first restored one becomes the default.
+        for (const record of readSavedOnlineSubtitles()) {
+            const stream = this.#createOnlineSubtitleStream(mediaSource, record, record.trackEvents);
+            if (this.#onlineSubtitleIndexToSetOnPlaying < 0) {
+                this.#onlineSubtitleIndexToSetOnPlaying = stream.Index;
+            }
+        }
+    }
+
+    /**
+     * Persists the online subtitle that was just selected, so the next playback
+     * can offer it again without hitting the subtitle service.
+     * @param {number} index The stream index that is being activated.
+     * @returns {void}
+     * @private
+     */
+    #rememberOnlineSubtitle(index) {
+        const stream = this.#onlineSubtitleStreams.get(index);
+        if (!stream) {
+            return;
+        }
+
+        saveOnlineSubtitle({
+            apiBase: stream.OnlineApiBase,
+            id: stream.OnlineId,
+            title: stream.OnlineTitle,
+            trackEvents: stream.OnlineTrackEvents
+        });
     }
 
     /**
@@ -2294,6 +2369,24 @@ export class HtmlVideoPlayer {
         ['click', 'wheel', 'keydown', 'mousedown'].forEach((type) => {
             panel.addEventListener(type, (event) => event.stopPropagation());
         });
+
+        const header = document.createElement('div');
+        header.classList.add('htmlvideoplayer-online-subtitle-header');
+        const headerTitle = document.createElement('span');
+        headerTitle.classList.add('htmlvideoplayer-online-subtitle-title');
+        headerTitle.textContent = ONLINE_SUBTITLE_LABEL;
+        const closeButton = document.createElement('button');
+        closeButton.type = 'button';
+        closeButton.classList.add('htmlvideoplayer-online-subtitle-close');
+        closeButton.title = '关闭';
+        closeButton.setAttribute('aria-label', '关闭');
+        closeButton.innerHTML = this.#artIconSvg('<path d="M18 6 6 18"/><path d="m6 6 12 12"/>');
+        closeButton.addEventListener('click', () => {
+            this.#toggleOnlineSubtitlePanel();
+        });
+        header.appendChild(headerTitle);
+        header.appendChild(closeButton);
+        panel.appendChild(header);
 
         const apiField = document.createElement('label');
         apiField.classList.add('htmlvideoplayer-online-subtitle-field');
@@ -2454,10 +2547,10 @@ export class HtmlVideoPlayer {
     async #downloadOnlineSubtitle(result, apiUrl) {
         this.#setOnlineSubtitleStatus('下载中…');
 
-        const downloadUrl = buildDownloadUrl(apiUrl, result.id);
+        const record = { apiBase: apiUrl, id: result.id, title: result.title };
         this.incrementFetchQueue();
         try {
-            const response = await fetch(downloadUrl);
+            const response = await fetch(buildDownloadUrl(record.apiBase, record.id));
             if (!response.ok) {
                 throw new Error('下载失败 (HTTP ' + response.status + ')');
             }
@@ -2472,7 +2565,7 @@ export class HtmlVideoPlayer {
                 return;
             }
 
-            const stream = this.#createOnlineSubtitleStream(result.title, downloadUrl, trackEvents);
+            const stream = this.#createOnlineSubtitleStream(this._currentPlayOptions.mediaSource, record, trackEvents);
             this.#selectOnlineSubtitleStream(stream);
             this.#toggleOnlineSubtitlePanel();
         } catch (err) {

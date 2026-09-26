@@ -168,6 +168,48 @@ video[controls]::-webkit-media-controls {
     display: flex;
 }
 
+.art-video-player .htmlvideoplayer-online-subtitle .htmlvideoplayer-online-subtitle-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.art-video-player .htmlvideoplayer-online-subtitle .htmlvideoplayer-online-subtitle-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.art-video-player .htmlvideoplayer-online-subtitle .htmlvideoplayer-online-subtitle-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--art-border-radius, 3px);
+    color: rgba(255, 255, 255, 0.7);
+    background: none;
+    cursor: pointer;
+}
+
+/* artplayer 给整棵 svg 树兜底填充，✕ 这种纯描边图标要显式关掉 */
+.art-video-player .htmlvideoplayer-online-subtitle .htmlvideoplayer-online-subtitle-close svg {
+    width: 14px;
+    height: 14px;
+    fill: none;
+}
+
+.art-video-player .htmlvideoplayer-online-subtitle .htmlvideoplayer-online-subtitle-close:hover {
+    color: var(--art-font-color, #fff);
+    background: rgba(255, 255, 255, 0.1);
+}
+
 .art-video-player .htmlvideoplayer-online-subtitle .htmlvideoplayer-online-subtitle-field {
     display: flex;
     align-items: center;
