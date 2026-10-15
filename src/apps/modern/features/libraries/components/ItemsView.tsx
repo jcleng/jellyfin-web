@@ -1,10 +1,10 @@
-import { ImageType } from '@jellyfin/sdk/lib/generated-client/models/image-type';
 import { ItemSortBy } from '@jellyfin/sdk/lib/generated-client/models/item-sort-by';
 import Box from '@mui/material/Box';
 import classNames from 'classnames';
 import React, { type FC, SetStateAction, useCallback, useMemo } from 'react';
 
 import { useLibrary } from 'apps/modern/features/libraries/hooks/useLibrary';
+import { resolveGridColumnsClass, resolveGridImageOptions } from 'apps/modern/features/libraries/utils/gridColumns';
 import { getDefaultLibraryViewSettings } from 'apps/modern/features/libraries/utils/settings';
 import Cards from 'components/cardbuilder/Card/Cards';
 import { CardShape } from 'components/cardbuilder/utils/shape';
@@ -79,25 +79,13 @@ const ItemsView: FC = () => {
     }, [itemsResult?.data?.Items, collectionType, viewType, libraryViewSettings.SortBy]);
 
     const getCardOptions = useCallback(() => {
-        let shape;
-        let preferThumb;
-        let preferDisc;
-        let preferLogo;
-
-        if (libraryViewSettings.ImageType === ImageType.Banner) {
-            shape = CardShape.Banner;
-        } else if (libraryViewSettings.ImageType === ImageType.Disc) {
-            shape = CardShape.Square;
-            preferDisc = true;
-        } else if (libraryViewSettings.ImageType === ImageType.Logo) {
-            shape = CardShape.Backdrop;
-            preferLogo = true;
-        } else if (libraryViewSettings.ImageType === ImageType.Thumb) {
-            shape = CardShape.Backdrop;
-            preferThumb = true;
-        } else {
-            shape = CardShape.Auto;
-        }
+        const {
+            shape,
+            preferThumb,
+            preferDisc,
+            preferLogo,
+            imageType
+        } = resolveGridImageOptions(libraryViewSettings.GridColumns, libraryViewSettings.ImageType);
 
         const cardOptions: CardOptions = {
             shape,
@@ -111,7 +99,7 @@ const ItemsView: FC = () => {
             preferDisc,
             preferLogo,
             overlayText: !libraryViewSettings.ShowTitle,
-            imageType: libraryViewSettings.ImageType,
+            imageType,
             queryKey: allViewsQueryKey,
             serverId: __legacyApiClient__?.serverId()
         };
@@ -149,6 +137,7 @@ const ItemsView: FC = () => {
         __legacyApiClient__,
         libraryViewSettings.ShowTitle,
         libraryViewSettings.ImageType,
+        libraryViewSettings.GridColumns,
         libraryViewSettings.ShowYear,
         libraryViewSettings.CardLayout,
         collectionType,
@@ -197,7 +186,8 @@ const ItemsView: FC = () => {
         'padded-left padded-right',
         libraryViewSettings.ViewMode === ViewMode.ListView ?
             'vertical-list' :
-            'vertical-wrap'
+            'vertical-wrap',
+        resolveGridColumnsClass(libraryViewSettings.GridColumns)
     );
 
     return (
