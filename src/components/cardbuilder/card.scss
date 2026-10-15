@@ -133,6 +133,19 @@ button::-moz-focus-inner {
     font-weight: inherit !important;
 }
 
+// 网格视图「每行数量」固定列数（无媒体查询 = 所有设备生效）
+.vertical-wrap.gridColumns-3 > .card {
+    width: 33.333333333333333333333333333333%;
+}
+
+.vertical-wrap.gridColumns-4 > .card {
+    width: 25%;
+}
+
+.vertical-wrap.gridColumns-6 > .card {
+    width: 16.666666666666666666666666666667%;
+}
+
 .btnCardOptions {
     position: absolute;
     bottom: 0.25em;
