@@ -19,7 +19,7 @@ import Popover from '@mui/material/Popover';
 import Switch from '@mui/material/Switch';
 
 import globalize from 'lib/globalize';
-import { LibraryViewSettings, ViewMode } from 'types/library';
+import { type GridColumns, LibraryViewSettings, ViewMode } from 'types/library';
 import { LibraryTab } from 'types/libraryTab';
 
 const IMAGE_TYPE_EXCLUDED_VIEWS = [
@@ -36,6 +36,8 @@ const imageTypesOptions = [
     { label: 'Logo', value: ImageType.Logo },
     { label: 'Thumb', value: ImageType.Thumb }
 ];
+
+const gridColumnsOptions: Array<GridColumns | undefined> = [undefined, 3, 4, 6];
 
 interface ViewSettingsButtonProps {
     viewType: LibraryTab;
@@ -92,6 +94,13 @@ const ViewSettingsButton: FC<ViewSettingsButtonProps> = ({
         setIsSettingsOpen(false);
     }, [setLibraryViewSettings]);
 
+    const setGridColumns = useCallback((columns?: GridColumns) => {
+        setLibraryViewSettings(prevState => ({
+            ...prevState,
+            GridColumns: columns
+        }));
+    }, [setLibraryViewSettings]);
+
     const onSettingsClick = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
         e.stopPropagation();
         setIsSettingsOpen(prev => !prev);
@@ -105,7 +114,8 @@ const ViewSettingsButton: FC<ViewSettingsButtonProps> = ({
     }, [setLibraryViewSettings]);
 
     const isGridView = libraryViewSettings.ViewMode === ViewMode.GridView;
-    const isImageTypeVisible = !IMAGE_TYPE_EXCLUDED_VIEWS.includes(viewType);
+    const isImageTypeVisible = !IMAGE_TYPE_EXCLUDED_VIEWS.includes(viewType)
+        && !libraryViewSettings.GridColumns;
 
     return (
         <>
@@ -160,6 +170,34 @@ const ViewSettingsButton: FC<ViewSettingsButtonProps> = ({
                         timeout='auto'
                         unmountOnExit
                     >
+                        <MenuList
+                            subheader={
+                                <ListSubheader
+                                    disableSticky
+                                    sx={{
+                                        lineHeight: '36px'
+                                    }}
+                                >
+                                    {globalize.translate('LabelGridColumns')}
+                                </ListSubheader>
+                            }
+                            dense
+                        >
+                            {gridColumnsOptions.map((columns) => (
+                                <MenuItem
+                                    key={columns ?? 'auto'}
+                                    onClick={() => setGridColumns(columns)}
+                                >
+                                    <ListItemIcon>
+                                        {libraryViewSettings.GridColumns === columns && <Check fontSize='small' />}
+                                    </ListItemIcon>
+                                    <ListItemText>
+                                        {columns == null ? globalize.translate('Auto') : columns}
+                                    </ListItemText>
+                                </MenuItem>
+                            ))}
+                        </MenuList>
+
                         {isImageTypeVisible && (
                             <MenuList
                                 subheader={
