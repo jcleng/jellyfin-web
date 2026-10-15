@@ -114,7 +114,7 @@ const ViewSettingsButton: FC<ViewSettingsButtonProps> = ({
     }, [setLibraryViewSettings]);
 
     const isGridView = libraryViewSettings.ViewMode === ViewMode.GridView;
-    const isImageTypeVisible = !IMAGE_TYPE_EXCLUDED_VIEWS.includes(viewType)
+    const isImageTypeMenuVisible = !IMAGE_TYPE_EXCLUDED_VIEWS.includes(viewType)
         && !libraryViewSettings.GridColumns;
 
     return (
@@ -198,7 +198,7 @@ const ViewSettingsButton: FC<ViewSettingsButtonProps> = ({
                             ))}
                         </MenuList>
 
-                        {isImageTypeVisible && (
+                        {isImageTypeMenuVisible && (
                             <MenuList
                                 subheader={
                                     <ListSubheader
@@ -254,7 +254,7 @@ const ViewSettingsButton: FC<ViewSettingsButtonProps> = ({
                                     label={globalize.translate('ShowTitle')}
                                 />
                             </MenuItem>
-                            {isImageTypeVisible && (
+                            {!IMAGE_TYPE_EXCLUDED_VIEWS.includes(viewType) && (
                                 <MenuItem>
                                     <FormControlLabel
                                         control={

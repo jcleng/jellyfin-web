@@ -53,6 +53,7 @@ if (libraryViewSettings.GridColumns) {
 - 该组合与现有「图像类型 = Thumb」的取图路径完全一致（`cardbuilder/utils/url.ts`），行为已验证过
 - `cardOptions.coverImage = true` 已存在，竖图会被裁切成横版封面
 - `GridColumns` 为 3/4/6 任一值时均强制横版（用户选定）
+- 频道（Channels）视图为既有例外：其 viewType 覆盖在解析器之后将 shape 固定为 Square，固定列数下仍保持方形封面（列数照常固定）
 
 ## 布局（列数）
 
@@ -98,7 +99,7 @@ const itemsContainerClass = classNames(
 | `LabelGridColumns` | Columns Per Row | 每行数量 |
 
 「自动」选项复用现有键 `Auto`（en-us: "Auto"，zh-cn: "自动"），不新增。
-其余语言由 Weblate 后续补齐，缺失时显示英文键名。
+其余语言由 Weblate 后续补齐，未收录的语言回退到 en-us 的英文文案（"Columns Per Row"），不显示键名、不空白。
 
 ## 影响范围
 
