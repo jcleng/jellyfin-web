@@ -49,6 +49,9 @@ export interface Filters {
     SubtitleLanguages?: string[];
 }
 
+/** 网格视图固定列数；缺省（undefined）= 自动（响应式递增） */
+export type GridColumns = 3 | 4 | 6;
+
 export enum ViewMode {
     GridView = 'grid',
     ListView = 'list'
@@ -61,6 +64,7 @@ export interface LibraryViewSettings {
     CardLayout: boolean;
     ImageType: ImageType;
     ViewMode: ViewMode;
+    GridColumns?: GridColumns;
     ShowTitle: boolean;
     ShowYear?: boolean;
     Filters?: Filters;
