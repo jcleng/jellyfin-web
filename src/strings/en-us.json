@@ -776,6 +776,7 @@
     "LabelForgotPasswordUsernameHelp": "Enter your username, if you remember it.",
     "LabelFormat": "Format",
     "LabelFriendlyName": "Friendly name",
+    "LabelGridColumns": "Columns Per Row",
     "LabelGroupMoviesIntoCollections": "Group movies into collections",
     "LabelGroupMoviesIntoCollectionsHelp": "Movies in a collection will be displayed as one grouped item when displaying movie lists.",
     "LabelGroupShowsIntoCollections": "Group shows into collections",

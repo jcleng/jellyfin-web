@@ -430,6 +430,7 @@
     "LabelFormat": "格式",
     "LabelFriendlyName": "好记的名称",
     "LabelServerNameHelp": "此名称将用做服务器名，默认使用服务器的主机名。",
+    "LabelGridColumns": "每行数量",
     "LabelGroupMoviesIntoCollections": "批量添加电影到集合",
     "LabelGroupMoviesIntoCollectionsHelp": "显示电影列表时，集合中的电影将作为一个分组项显示。",
     "LabelH264Crf": "H.264 CRF 编码质量等级",

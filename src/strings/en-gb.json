@@ -827,6 +827,7 @@
     "LabelHomeNetworkQuality": "Home network quality",
     "LabelHardwareAccelerationType": "Hardware acceleration",
     "LabelEncoderPreset": "Encoding preset",
+    "LabelGridColumns": "Columns Per Row",
     "LabelH264Crf": "H.264 encoding CRF",
     "LabelGroupMoviesIntoCollectionsHelp": "Films in a collection will be displayed as one grouped item when displaying film lists.",
     "LabelGroupMoviesIntoCollections": "Group films into collections",
