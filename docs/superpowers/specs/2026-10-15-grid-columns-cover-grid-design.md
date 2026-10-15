@@ -84,7 +84,8 @@ const itemsContainerClass = classNames(
 }
 ```
 
-- 选择器 specificity `(0,2,1)`，覆盖现有全部卡片宽度规则（`.portraitCard` = `(0,1,0)`、`.itemsContainer-tv > .portraitCard` = `(0,2,0)`），无需逐断点覆盖
+- 选择器 specificity `(0,3,0)`（三个类选择器），覆盖现有全部卡片宽度规则（`.portraitCard` = `(0,1,0)`、`.itemsContainer-tv > .portraitCard` = `(0,2,0)`，media query 不增加 specificity），无需逐断点覆盖
+- 实际插入位置为 `.card:focus` 之后（因 stylelint `no-descending-specificity` 约束），与 `.vertical-wrap.centered` 之后级联等价
 - `gridColumns-N` 只在选了固定列数时挂载；「自动」不挂载 → 现有断点规则原样生效
 - 卡片为 flex item，`.cardBox` 的 margin 位于卡片内部，百分比宽度下每行恰好 N 个、正常换行
 

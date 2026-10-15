@@ -432,6 +432,8 @@ git commit -m "feat: add columns-per-row menu (auto/3/4/6) to grid view settings
 
 在 `.vertical-wrap.centered` 规则块之后插入：
 
+> **执行记录**：实际改插在 `.card:focus` 规则之后（约 card.scss:135），因为按原位置插入会触发 stylelint `no-descending-specificity`（`.card:focus` 不能出现在更高 specificity 的 `.card` 结尾选择器之后）。审查已验证两处位置级联等价（两者之间无任何 `width` 声明）。
+
 ```scss
 // 网格视图「每行数量」固定列数（无媒体查询 = 所有设备生效）
 .vertical-wrap.gridColumns-3 > .card {
@@ -448,7 +450,7 @@ git commit -m "feat: add columns-per-row menu (auto/3/4/6) to grid view settings
 ```
 
 要点（勿改）：
-- 选择器 specificity `(0,2,1)`，覆盖 `.portraitCard` `(0,1,0)`、`.itemsContainer-tv > .portraitCard` `(0,2,0)` 及全部 media query 内的宽度
+- 选择器 specificity `(0,3,0)`（三个类选择器），覆盖 `.portraitCard` `(0,1,0)`、`.itemsContainer-tv > .portraitCard` `(0,2,0)` 及全部 media query 内的宽度（media query 不增加 specificity）
 - 必须**不带** media query，才能保证手机与 PC 同列数
 - 只在容器挂了 `gridColumns-N` 类时生效；「自动」不挂类 → 现有规则原样工作
 
